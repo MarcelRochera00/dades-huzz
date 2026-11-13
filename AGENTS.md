@@ -98,5 +98,12 @@ exactly. Never improvise a skill from its name, and never say it does not exist 
 | `pr` | `.agents/skills/pr/SKILL.md` | Called by `pr-final` to write the PR body |
 | `pr-final` | `.agents/skills/pr-final/SKILL.md` | The work is done and needs a PR |
 
+How each tool calls a skill: Claude Code and Cursor `/<skill>`, Codex `$<skill>` (or `/skills`). Any
+other tool: read the file from the table.
+
+If a skill tells you to start sub-agents and your tool cannot, do the same steps yourself, one after
+another, and keep each step's findings separate. If it names a command your tool lacks (such as
+`/code-review`), use the manual fallback the skill gives.
+
 Skills live in `.agents/skills/` (the source of truth). `.claude/skills/` and `.github/skills/` are
 copies made by `uv run python scripts/sync_skills.py`; edit only the source, then run the script.

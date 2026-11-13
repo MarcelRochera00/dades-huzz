@@ -6,14 +6,23 @@ l'hora de dinar de dissabte i llavors canviem el que no ens serveixi.
 ## Per començar (un cop)
 
 ```
-git clone <url> && cd dades-huzz
+git clone https://github.com/ProGabo/dades-huzz && cd dades-huzz
 ./scripts/setup.ps1      # Windows
 sh scripts/setup.sh      # Mac / Linux
 ```
 
 L'script comprova que tens `git`, `uv` i `gh`, instal·la les dependències i et diu quines skills té
-el repo. Funciona amb qualsevol IA (Claude Code, Cursor, Codex, Copilot...): totes llegeixen les
-mateixes regles (`AGENTS.md`) i les mateixes skills.
+el repo. Totes les IA llegeixen les mateixes regles (`AGENTS.md`) i les mateixes skills
+(`.agents/skills/`). Només canvia com les crides:
+
+| Eina | Obrir | Cridar una skill | Comprovar que les veu |
+|---|---|---|---|
+| Claude Code | `claude` dins la carpeta (accepta "trust this folder") | `/grill-with-docs` | escriu `/` i surten a la llista |
+| Cursor | *File > Open Folder* amb el repo, xat en mode **Agent** local (no Cloud/Background) | `/grill-with-docs` | escriu `/` i surten a la llista |
+| Codex | `codex` dins la carpeta | `$grill-with-docs` | `/skills` |
+
+A Codex, quan la IA vulgui fer `git push` o `gh pr create` et demanarà permís (necessita xarxa): accepta'l.
+A Cursor és possible que cada skill surti dues vegades a la llista; són idèntiques.
 
 ## El flux, en 4 passos
 
@@ -24,8 +33,8 @@ mateixes regles (`AGENTS.md`) i les mateixes skills.
 | 3. Construir | La IA implementa el pla | Amb una comprovació que passa o falla, la IA sap quan ha acabat. |
 | 4. Entregar | `pr-final` | Revisa, executa i obre el PR amb la prova que funciona. |
 
-Si la teva IA no reconeix una skill pel nom, digues-li: *"llegeix `AGENTS.md` i segueix la skill
-grill-with-docs"*. Les skills són fitxers a `.agents/skills/` i qualsevol IA les pot llegir.
+No cal que recordis la sintaxi: escriure *"grill-with-docs: vull fer X"* també funciona. Si mai la
+IA diu que no troba una skill, digues-li: *"llegeix `AGENTS.md` i segueix la skill grill-with-docs"*. Les skills són fitxers a `.agents/skills/` i qualsevol IA les pot llegir.
 
 ## Què esperar (perquè no sorprengui)
 
