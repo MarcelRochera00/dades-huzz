@@ -4,7 +4,7 @@
 
 ## Needs confirmation from
 
-<!-- Only when blocking and significant: this PR touches another lane or CONTRACTS.md.
+<!-- Only when blocking and significant: this PR touches another lane or docs/contracts.md.
      Keep the PR as a draft while any box is unchecked. Delete the section if nobody is needed. -->
 
 - [ ] @person: the specific question they must answer

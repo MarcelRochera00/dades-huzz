@@ -42,7 +42,7 @@ grill-with-docs"*. Les skills són fitxers a `.agents/skills/` i qualsevol IA le
 2. Cada tasca, una branca curta `nom/tema` i un PR.
 3. **El PR el mergeja qui l'ha fet**, quan el CI és verd. Si se n'oblida, el pot mergejar qualsevol.
 4. **Confirmació d'algú altre només quan cal de veritat**: si toques el carril d'un altre o un
-   contracte (`CONTRACTS.md`). Ho poses a la secció *Needs confirmation from* del PR, amb la persona
+   contracte (`docs/contracts.md`). Ho poses a la secció *Needs confirmation from* del PR, amb la persona
    i la pregunta concreta. Mentre hi hagi una casella sense marcar, el PR és un esborrany.
 5. Integra a `main` com a mínim un cop per bloc de feina.
 
@@ -54,8 +54,8 @@ orientativa; l'important és anar al dia.
 1. Un minut per persona: què hi ha a `main` gràcies a mi, què faré ara, què em bloqueja.
 2. Executem `main` des de zero.
 3. Contractes i PRs que esperen confirmació.
-4. Com anem de puntuació (`experiments.md`).
-5. Una línia nova a `PITCH.md` i repartiment del bloc següent.
+4. Com anem de puntuació (`docs/experiments.md`).
+5. Una línia nova a `docs/pitch.md` i repartiment del bloc següent.
 
 Dissabte al vespre fem una **entrega de prova**. Diumenge a les 10:00 deixem d'afegir coses noves.
 

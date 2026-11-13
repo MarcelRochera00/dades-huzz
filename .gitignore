@@ -20,3 +20,7 @@ data/*
 .handoffs/
 .claude/settings.local.json
 .DS_Store
+
+# local-only working folders
+outputs/
+scratch/

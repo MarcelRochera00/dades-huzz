@@ -2,7 +2,7 @@
 
 Team workspace for the Datathon FME 2026. The name is a placeholder until we pick a challenge.
 
-- **How we work (Catalan, one page):** [COM-TREBALLEM.md](COM-TREBALLEM.md)
+- **How we work (Catalan, one page):** [docs/COM-TREBALLEM.md](docs/COM-TREBALLEM.md)
 - **Rules for coding agents:** [AGENTS.md](AGENTS.md)
 - **The challenge:** [docs/challenge/](docs/challenge/)
 
@@ -20,15 +20,19 @@ Requires [git](https://git-scm.com), [uv](https://docs.astral.sh/uv/) and the
 
 | Path | What |
 |---|---|
-| `src/dades_huzz/` | All shared logic |
-| `tests/` | Pass/fail checks |
-| `notebooks/` | Exploration only |
+| `src/dades_huzz/` | All shared logic: data, features, model, evaluation |
+| `tests/` | Pass/fail checks, one file per module |
+| `scripts/` | Commands you run: setup, train, predict, submit |
 | `app/` | Demo (framework decided once we know the challenge) |
+| `notebooks/` | Exploration only; nothing imports from here |
 | `docs/challenge/` | Brief, slides, notes, Q&A with the company |
-| `CONTRACTS.md` | Data schema and shared signatures agreed between lanes |
-| `experiments.md` | Every modelling attempt and its score |
-| `PITCH.md` | The story, updated at every sync |
-| `.agents/skills/` | Agent skills (source of truth) |
+| `docs/contracts.md` | Data schema and shared signatures agreed between lanes |
+| `docs/experiments.md` | Every modelling attempt and its score |
+| `docs/pitch.md` | The story, updated at every sync |
+| `.agents/skills/` | Agent skills (source of truth; `.claude/` and `.github/` hold copies) |
+
+`data/`, `outputs/` and `scratch/` are local only. The full map, with naming rules, is in
+[AGENTS.md](AGENTS.md#where-things-go).
 
 ## Credits
 

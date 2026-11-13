@@ -3,7 +3,7 @@
 **Lane**: the part of the solution one person owns for a work block. Changes inside your lane need
 nobody's confirmation. Catalan: *carril*.
 
-**Contract**: something two or more lanes depend on, written in `CONTRACTS.md`: a data schema, a
+**Contract**: something two or more lanes depend on, written in `docs/contracts.md`: a data schema, a
 shared function signature, the submission format. Changing it needs confirmation from the lanes that
 use it.
 

@@ -2,7 +2,7 @@
 
 Four people work in this repo at the same time, each with their own coding agent, for the Datathon FME
 2026 (challenge revealed Saturday 10:00, submission Sunday 12:00). These rules keep us from breaking
-each other's work. The human-facing version is `COM-TREBALLEM.md`.
+each other's work. The human-facing version is `docs/COM-TREBALLEM.md`.
 
 ## Commands
 
@@ -13,7 +13,7 @@ each other's work. The human-facing version is `COM-TREBALLEM.md`.
 
 ## Before planning any task
 
-Read `docs/challenge/` (what the company asked for), `CONTRACTS.md` (what the lanes agreed) and
+Read `docs/challenge/` (what the company asked for), `docs/contracts.md` (what the lanes agreed) and
 `GLOSSARY.md` (the words we use). If the task contradicts one of them, say so before writing code.
 
 ## Workflow per task
@@ -34,15 +34,46 @@ Read `docs/challenge/` (what the company asked for), `CONTRACTS.md` (what the la
 - The author merges their own PR once CI is green and every **Needs confirmation from** box is
   checked. Never merge a PR with an unchecked box, and never check a box on someone's behalf.
 - Ask for confirmation only when it is blocking and significant: the change touches another person's
-  lane or anything in `CONTRACTS.md`. A contract change gets its own PR.
+  lane or anything in `docs/contracts.md`. A contract change gets its own PR.
 - If `main` breaks, fix or revert within 10 minutes and tell the team.
+
+## Where things go
+
+Judges and teammates read this repo cold. Every file has one home; before creating a file, find its
+row here. If nothing fits, ask the user instead of inventing a place.
+
+| What | Where | Naming |
+|---|---|---|
+| Loading and cleaning data | `src/dades_huzz/data.py` | |
+| Feature building | `src/dades_huzz/features.py` | |
+| Training and prediction | `src/dades_huzz/model.py` | |
+| Metric, validation, submission check | `src/dades_huzz/evaluation.py` | |
+| Tests | `tests/test_<module>.py` | mirrors the module it tests |
+| Commands a person runs (train, predict, submit) | `scripts/<verb>_<thing>.py` | thin: parse args, call `src/` |
+| Demo app | `app/` | one entry point, named in the README |
+| Exploration | `notebooks/<name>-<topic>.ipynb` | your name first |
+| The company's material | `docs/challenge/` | |
+| Team agreements | `docs/contracts.md`, `docs/experiments.md`, `docs/pitch.md` | |
+| Figures and slides we present | `docs/assets/` | |
+| Raw and processed data | `data/raw/`, `data/processed/` | never committed |
+| Models, predictions, submissions, logs | `outputs/` | never committed |
+| Throwaway files, prototypes, drafts | `scratch/` | never committed |
+
+- A module in `src/dades_huzz/` becomes a folder only when it passes about 300 lines; then split it
+  by what it does, never into `utils.py`, `helpers.py` or `misc.py`.
+- Search before you create: extend the existing module instead of adding a second one that does a
+  similar job (`model2.py`, `new_features.py`, `final_v3.py` are never the answer).
+- No new files or folders at the repo root. `tests/test_structure.py` fails if one appears; adding
+  to its allow-list is a contract change.
+- Create a folder with its first real file, not before.
+- Delete what a change makes dead, in the same PR.
 
 ## Code
 
 - Logic lives in `src/dades_huzz/`. Notebooks in `notebooks/` are for exploring; nothing imports
   from them.
 - Data stays out of git (`data/` is ignored). Record how to obtain it in `docs/challenge/`.
-- Log every modelling attempt as a row in `experiments.md`, including the ones that got worse.
+- Log every modelling attempt as a row in `docs/experiments.md`, including the ones that got worse.
 - Validation must imitate how the company will score us. State the validation scheme next to any
   score you report.
 - Everything the product outputs is in English: code, comments, commits, PRs, README, slides.

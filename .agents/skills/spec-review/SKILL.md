@@ -10,7 +10,7 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
-The spec is whatever the user points to: an issue, a file in `docs/challenge/`, `CONTRACTS.md`, or the plan agreed in a grilling session. If you cannot find one, ask.
+The spec is whatever the user points to: an issue, a file in `docs/challenge/`, `docs/contracts.md`, or the plan agreed in a grilling session. If you cannot find one, ask.
 
 ## Process
 
