@@ -24,6 +24,9 @@ mateixes regles (`AGENTS.md`) i les mateixes skills.
 | 3. Construir | La IA implementa el pla | Amb una comprovació que passa o falla, la IA sap quan ha acabat. |
 | 4. Entregar | `pr-final` | Revisa, executa i obre el PR amb la prova que funciona. |
 
+Si la teva IA no reconeix una skill pel nom, digues-li: *"llegeix `AGENTS.md` i segueix la skill
+grill-with-docs"*. Les skills són fitxers a `.agents/skills/` i qualsevol IA les pot llegir.
+
 ## Què esperar (perquè no sorprengui)
 
 - **`grill-with-docs` fa moltes preguntes**, per rondes i numerades. Cada una porta una resposta

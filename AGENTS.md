@@ -49,5 +49,23 @@ Read `docs/challenge/` (what the company asked for), `CONTRACTS.md` (what the la
 
 ## Skills
 
+A skill is a folder with a `SKILL.md` you must read in full and follow. When the user names a skill
+(with or without a slash, in any language: "grill-with-docs", "/pr-final", "fes un prototype"), or a
+step above calls for one, and your tool does not load it by itself, open the file and follow it
+exactly. Never improvise a skill from its name, and never say it does not exist without looking here:
+
+| Skill | File | Use it when |
+|---|---|---|
+| `grill-with-docs` | `.agents/skills/grill-with-docs/SKILL.md` | Before any task bigger than a small fix |
+| `grilling` | `.agents/skills/grilling/SKILL.md` | Called by `grill-with-docs` |
+| `domain-modeling` | `.agents/skills/domain-modeling/SKILL.md` | Called by `grill-with-docs` |
+| `prototype` | `.agents/skills/prototype/SKILL.md` | A question must be seen to be answered |
+| `tdd` | `.agents/skills/tdd/SKILL.md` | Writing tests or building test-first |
+| `codebase-design` | `.agents/skills/codebase-design/SKILL.md` | Deciding the shape of a shared interface |
+| `branch-review` | `.agents/skills/branch-review/SKILL.md` | Reviewing a branch; called by `pr-final` |
+| `spec-review` | `.agents/skills/spec-review/SKILL.md` | Called by `branch-review` |
+| `pr` | `.agents/skills/pr/SKILL.md` | Called by `pr-final` to write the PR body |
+| `pr-final` | `.agents/skills/pr-final/SKILL.md` | The work is done and needs a PR |
+
 Skills live in `.agents/skills/` (the source of truth). `.claude/skills/` and `.github/skills/` are
 copies made by `uv run python scripts/sync_skills.py`; edit only the source, then run the script.
