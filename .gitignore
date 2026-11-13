@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+
+# data and models stay out of git
+data/*
+!data/.gitkeep
+*.parquet
+*.pkl
+*.joblib
+
+# secrets and local state
+.env
+.env.*
+.handoffs/
+.claude/settings.local.json
+.DS_Store

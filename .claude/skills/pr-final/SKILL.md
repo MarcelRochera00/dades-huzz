@@ -1,0 +1,13 @@
+---
+name: pr-final
+description: Review the branch, write the PR with executed evidence, and open it. Use when asked to make, open or write a PR.
+argument-hint: "[draft]"
+---
+
+Ship a branch as a PR that the team can merge by reading only the PR.
+
+1. **Review.** Follow the `branch-review` skill on the branch, unless it already ran in this session on the current `HEAD`. A finding is **blocking** if it is a bug, or a spec requirement that is missing or wrongly implemented. If any is blocking, ask the user, in a single question, which ones get fixed before the PR. If they choose to fix any, stop here: fix, then run this skill again. Otherwise those findings go to open decisions and you continue.
+2. **Evidence.** For each behaviour the PR changes, run the program the way someone would use it (CLI, dry run, endpoint, evaluation script, against a fake server if needed) on the fixed point and on the `HEAD` being shipped, and show before and after. When the evidence is a test, name the specific test and check that it fails without the change. The number of passing tests only proves nothing broke. For a model change, the evidence is the validation score before and after, from a command run in this session, and the matching row in `experiments.md`. Done when every claim that something works is backed by a command executed in this session, with its real output copied untrimmed. What cannot be run here (real data, another API) is stated in the PR as not checked.
+3. **Open decisions.** Collect what the change assumes without backing in the spec, the repo docs or the grilling; what stays unresolved; and what needs validation from another person. Ask the user the ones they can close. Of the rest, a point goes under **Needs confirmation from** only when it is blocking and significant: the PR touches another person's lane or changes something in `CONTRACTS.md`. Everything else is an open decision that does not block the merge.
+4. **Body.** Follow the `pr` skill, filling in `.github/pull_request_template.md`. Put the open decisions first when any remain: a table with one row per point, saying it in one or two sentences, and a column with who can close it. Only what affects the decision to merge goes in; design smells and style nits stay in the review report. Title and body in English. Done when you have re-read every claim in the body about what a test proves against the code of that test, and all are true.
+5. **Open.** Push the branch and create the PR with `gh pr create` against the fixed point's branch. Open it as a draft when the argument is `draft` or when any **Needs confirmation from** box is unchecked, and mention those people. Return the URL.
