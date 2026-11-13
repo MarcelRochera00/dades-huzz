@@ -25,4 +25,4 @@ Write-Host "Skills in this repo:"
 Get-ChildItem .agents/skills -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }
 Write-Host ""
 Write-Host "Ready. Open your agent in this folder and check it lists the skills above."
-Write-Host "Read COM-TREBALLEM.md next."
+Write-Host "Read docs/COM-TREBALLEM.md next."

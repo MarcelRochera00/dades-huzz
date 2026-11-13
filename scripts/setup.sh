@@ -26,4 +26,4 @@ echo "Skills in this repo:"
 for d in .agents/skills/*/; do echo "  - $(basename "$d")"; done
 echo ""
 echo "Ready. Open your agent in this folder and check it lists the skills above."
-echo "Read COM-TREBALLEM.md next."
+echo "Read docs/COM-TREBALLEM.md next."
