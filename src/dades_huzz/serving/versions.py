@@ -42,7 +42,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
-DEFAULT_SPLIT = "tati-destroyer-category=50,tati-terminator-category-viewed=50"
+DEFAULT_SPLIT = "tati-terminator-category-viewed=100"
 BUDGET_MS = 200.0
 """docs/contracts.md: about 200 ms per request. A challenger gets this long per request."""
 WINDOW = 20
