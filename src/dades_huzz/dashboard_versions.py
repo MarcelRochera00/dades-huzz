@@ -98,6 +98,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#0b6e99",
         "Tournament 4's pieces together: Titan+ 100 deep, trending subcategory in slots 2-3, #60 for cold.",
     ),
+    "lauri-titan-als": VersionStyle(
+        "#9c2f2f",
+        "Titan max plus each returning shopper's taste from the history (ALS): new candidates and a weight.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 
