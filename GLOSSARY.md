@@ -102,6 +102,10 @@ store's history. _Avoid_: old user, known user.
 **Shopper profile**: a returning shopper's share of their past activity in each category (purchases count
 more than add-to-carts, which count more than views). _Avoid_: user embedding, user vector.
 
+**Shopper's day**: what a shopper, new or returning, did in the live stream since it started: the categories
+they viewed, what they carted and have not bought, and the products they viewed. It reaches further back than
+the request's recent views. _Avoid_: session (a day holds several), today's profile.
+
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.
 

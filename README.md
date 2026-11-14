@@ -42,6 +42,7 @@ requests; compare versions only inside the same window, because conversion moves
 | `tati-armageddon-viewed-profile` | Apocalypse with up to 3 viewed products on top | same | 1.00 (17:50–18:25) |
 | `tati-cart-profile` | Apocalypse with up to 3 products the returning shopper carted in the history and never bought on top (those of the category viewed last first) | + history carts | not served yet |
 | `lauri-titan-feedback` | Scores every candidate of the versions above with weights learned from our own carousels, and shows the 10 most likely to be bought | all of the above, weighed by `scripts/train_lauri.py` | not served yet |
+| `lauri-colossus-feedback` | Titan retrained on one more hour of our carousels, which also knows the shopper's day: the categories they viewed today, what is in their cart and what they viewed | + shopper's day | not served yet |
 
 Which versions ran when is in the heartbeats (`scripts/check_serving.py`, the dashboard's splits view); why
 each one exists is in [docs/experiments.md](docs/experiments.md).
