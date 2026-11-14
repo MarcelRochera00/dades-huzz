@@ -44,7 +44,8 @@ Use this window as the spoken example. [Experiment 17](experiments.md)
 | Jury · Terminator, Practice | With practice feedback through **18:09 Barcelona time on Saturday 14 November**, the list was shown **17,059 times**, with **154 confirmed simulated purchases**, **€5,812.46 in simulated sales** and **0.90 purchases per 100 times shown**. | These cards describe the selected version's confirmed displays. The official team score uses the simulator's purchase probabilities and also considers cold requests and reliability. |
 
 The practice leaderboard headline comes from the organizers' expected purchase rates. The Team
-example counts confirmed purchases by original assignment. The Jury example counts confirmed
+example counts confirmed purchases by original assignment. Every assigned request in that example
+had feedback. The Jury example counts confirmed
 purchases when feedback identifies the selected version's list as the one shown. The table gives
 fixed rehearsal figures. Read the round and feedback timestamp aloud if the live totals differ.
 The final results line is for the team to fill in once the organizers publish the score.
