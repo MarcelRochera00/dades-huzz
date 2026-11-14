@@ -134,6 +134,34 @@ def _lauri(
     )
 
 
+def _cold_answer(rawtree: RawTree) -> Recommend:
+    """#60's cold-start rule (with #69) on the live ranking, never showing what the shopper bought."""
+    return category_best_sellers(
+        **vars(live_category_signals(rawtree)),
+        keep_viewed=True,
+        cold_start=True,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    )
+
+
+def _titan_max(rawtree: RawTree) -> Recommend:
+    """Lauri Titan max: tournament 4's pieces together. Titan+ (history carts) reaching 100 deep into each
+    category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests."""
+    titan_plus_100 = _lauri(
+        rawtree, "lauri-titan-plus", history_carts=True, per_category=100
+    )
+    hot = hot_first(
+        titan_plus_100,
+        live_category_signals(rawtree).ranked_by_category,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    )
+    return cold_first(hot, _cold_answer(rawtree))
+
+
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-0-bestsellers": lambda rawtree: best_sellers,
     "tati-destroyer-category": lambda rawtree: category_best_sellers(
@@ -187,15 +215,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         rawtree, "lauri-titan-feedback", per_category=100
     ),
     "lauri-titan-cold60": lambda rawtree: cold_first(
-        _lauri(rawtree, "lauri-titan-feedback"),
-        category_best_sellers(
-            **vars(live_category_signals(rawtree)),
-            keep_viewed=True,
-            cold_start=True,
-            bought=shopper_purchases(
-                rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
-            ),
-        ),
+        _lauri(rawtree, "lauri-titan-feedback"), _cold_answer(rawtree)
     ),
     "lauri-titan-plus-hot": lambda rawtree: hot_first(
         _lauri(rawtree, "lauri-titan-plus", history_carts=True),
@@ -204,6 +224,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
             rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
         ),
     ),
+    "lauri-titan-max": lambda rawtree: _titan_max(rawtree),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
