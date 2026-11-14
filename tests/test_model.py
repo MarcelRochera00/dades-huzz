@@ -491,3 +491,12 @@ def test_lauri_weights_round_trip_through_the_scratch_table():
         fake.rows[0]["kind"] == "lauri_weights" and fake.rows[0]["name"] == "lauri-test"
     )
     assert load_lauri_weights(fake, "lauri-test") == weights
+
+
+def test_lauri_never_pads_with_an_unavailable_product():
+    # Only 3 products are available, so the answer is padded from the fallback, which here still lists
+    # products that just went out of stock (the fallback and the stock refresh at different moments).
+    available = frozenset({"a_0", "a_1", "b_0"})
+    state = _lauri_state(available=available)
+    answer = _lauri()({"request_id": "r", "user_id": "u", "recent_views": []}, state)
+    assert set(answer) <= available

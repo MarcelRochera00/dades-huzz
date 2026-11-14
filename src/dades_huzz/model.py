@@ -401,7 +401,11 @@ def lauri(
         for product in state.fallback:
             if len(best) == ANSWER_SIZE:
                 break
-            if product not in best and product not in owned:
+            if (
+                product in state.available
+                and product not in best
+                and product not in owned
+            ):
                 best.append(product)
         return best
 
