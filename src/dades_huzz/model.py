@@ -23,6 +23,9 @@ BLANK_LEAD = 10.0
 BLANK_LEADER_SLOTS = ((80.0, 8), (60.0, 5), (40.0, 4), (15.0, 3))
 """(lowest share %, slots): the slots a blank profile (cold, no views) gives the leading category, by its
 share of the last 15 minutes' sales. Under 15 % it gets no slots of its own."""
+HOT_MIN_RATIO = 4.0
+"""A subcategory in `State.hot_subcategories` selling at least this many times its day share fills the cold
+blocks of its category, right after what the shopper carted and viewed."""
 BLANK_CATEGORY_SHARE = {
     "android": {
         "Books & Media": 18.0,
@@ -251,8 +254,8 @@ def cold_start_answer(
     Each category the shopper viewed gets a share of the ANSWER_SIZE slots in proportion to its views
     (largest remainder; a tie goes to the category viewed last). Blocks follow by share, ties again to the
     latest view. A block lists what was carted in that category, then what was viewed in it (latest first),
-    then the category's trending products and its best sellers; carted products may stretch it past its
-    share. Slots left over take the global trend, then the fallback. Without a view of a known category this
+    then the products of its hot subcategories (`hot_in`), then the category's trending products and its
+    best sellers; carted products may stretch it past its share. Slots left over take the global trend, then the fallback. Without a view of a known category this
     is just the global trend. Unavailable products, the shopper's recent purchases and what they `owned` from
     the history are never shown.
     """
@@ -267,6 +270,23 @@ def cold_start_answer(
             and product_id not in answer
         ):
             answer.append(product_id)
+
+    hot = {
+        s: ratio
+        for s, ratio in state.hot_subcategories.items()
+        if ratio >= HOT_MIN_RATIO
+    }
+
+    def hot_in(category: str) -> list[str]:
+        """The products of `category`'s hot subcategories, the hottest first, trending then best sellers."""
+        if not hot:
+            return []
+        pool = (
+            *(p for p in trending if category_of(p) == category),
+            *(ranked_by_category or {}).get(category, ()),
+        )
+        found = [p for p in dict.fromkeys(pool) if state.subcategory.get(p) in hot]
+        return sorted(found, key=lambda p: -hot[state.subcategory[p]])
 
     views: Counter[str] = Counter()
     last_view: dict[str, tuple[int, str]] = {}
@@ -295,6 +315,7 @@ def cold_start_answer(
             ranked_by_category or {},
             lambda p: p in state.available and p not in bought and p not in left_out,
             leader,
+            hot_in,
         ):
             if len(answer) >= ANSWER_SIZE:
                 break
@@ -322,7 +343,13 @@ def cold_start_answer(
             for product_id in carted.get(c, ()):
                 add(product_id)
             block_end = max(len(answer), block_start + quota[c])
-            for product_id in (*in_category[c], *(ranked_by_category or {}).get(c, ())):
+            viewed_in = in_category[c][: views[c]]
+            for product_id in (
+                *viewed_in,
+                *hot_in(c),
+                *in_category[c][views[c] :],
+                *(ranked_by_category or {}).get(c, ()),
+            ):
                 if len(answer) >= min(block_end, ANSWER_SIZE):
                     break
                 add(product_id)
@@ -340,12 +367,13 @@ def blank_profile_answer(
     ranked_by_category: Mapping[str, Sequence[str]],
     eligible: Callable[[str], bool],
     leader: tuple[str, int] | None = None,
+    hot_in: Callable[[str], Sequence[str]] | None = None,
 ) -> list[str]:
     """For a cold shopper we know nothing about but their device: the `leader` (category, slots) of the last
     15 minutes' sales first, then the other categories by what that device buys (BLANK_CATEGORY_SHARE,
-    largest remainder), a block per category, the biggest share first. A block lists its category's trending
-    products, then its best sellers, keeping only `eligible` ones. A block that runs short leaves its slots
-    to the caller's filler."""
+    largest remainder), a block per category, the biggest share first. A block lists the products of its
+    hot subcategories (`hot_in`), then its trending products, then its best sellers, keeping only `eligible`
+    ones. A block that runs short leaves its slots to the caller's filler."""
     shares = BLANK_CATEGORY_SHARE[device]
     first, first_slots = leader or ("", 0)
     others = {c: share for c, share in shares.items() if c != first}
@@ -368,7 +396,11 @@ def blank_profile_answer(
     answer: list[str] = []
     for c in order:
         block: list[str] = []
-        for product_id in (*in_category[c], *ranked_by_category.get(c, ())):
+        for product_id in (
+            *(hot_in(c) if hot_in else ()),
+            *in_category[c],
+            *ranked_by_category.get(c, ()),
+        ):
             if len(block) == quota[c]:
                 break
             if (

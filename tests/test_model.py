@@ -212,6 +212,51 @@ def test_a_blank_shopper_gives_the_leading_category_its_slots_first():
         assert len(set(answer)) == 10
 
 
+def test_a_blank_shopper_sees_a_hot_subcategory_first_in_its_category_block():
+    # comics sells 4.5x its day share: b1 opens the books block, ahead of the trend
+    state = _blank_profile_state()
+    state = State(
+        **{
+            **vars(state),
+            "recent_purchases": _sold(b=4, t=4),
+            "subcategory": {"b1": "Comics"},
+            "hot_subcategories": {"Comics": 4.5},
+        }
+    )
+    answer = _cold_recommend({})(_blank_request("android"), state)
+    assert answer == ["b1", "b4", "t4", "b3", "b2", "t3", "t2", "p_00", "p_01", "p_02"]
+
+
+def test_a_cold_block_fills_with_its_hot_subcategories_after_carted_and_viewed():
+    # Lego sells 5x its day share, so its products follow the viewed one, the hottest first, trending
+    # then best sellers. Dolls at 3x is not hot enough: it keeps its usual place
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={"toys": ["t_1", "t_b"]},
+        keep_viewed=True,
+        cold_start=True,
+    )
+    trend = {"t_1": 9, "t_2": 8, "t_3": 1}
+    state = _cold_state(trend, extra={"t_v", "t_b"})
+    state = State(
+        **{
+            **vars(state),
+            "category": {p: "toys" for p in (*trend, "t_v", "t_b")},
+            "subcategory": {
+                "t_1": "Dolls",
+                "t_2": "Dolls",
+                "t_3": "Lego",
+                "t_b": "Lego",
+            },
+            "hot_subcategories": {"Lego": 5.0, "Dolls": 3.0},
+        }
+    )
+    request = {"is_new_user": True, "recent_views": [{"product_id": "t_v"}]}
+    assert recommend(request, state)[:5] == ["t_v", "t_3", "t_b", "t_1", "t_2"]
+
+
 def test_the_leading_category_gets_slots_by_its_share_of_the_last_15_minutes_sales():
     from dades_huzz.model import best_selling_category
 
