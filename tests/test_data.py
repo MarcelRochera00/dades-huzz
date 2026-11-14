@@ -92,6 +92,17 @@ def test_fallback_is_the_best_sellers_that_are_available_in_order():
     )
 
 
+def test_fallback_still_has_every_available_product_when_no_best_seller_is_in_the_catalogue():
+    # Sunday may bring a catalogue of new products that never sold: the fallback must still fill an answer.
+    catalog = [
+        {"product_id": f"p_new_{i:02d}", "price_eur": 1.0, "is_active": True}
+        for i in range(12)
+    ]
+    fallback = current_state(catalog, [], ["p_old_1", "p_new_05"]).fallback
+    assert fallback[0] == "p_new_05"
+    assert sorted(fallback) == sorted(row["product_id"] for row in catalog)
+
+
 def test_request_context_is_nested_as_the_contract_says():
     row = {
         "request_id": "r1",

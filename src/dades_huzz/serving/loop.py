@@ -41,6 +41,12 @@ about 0.2 s), so a change reaches the loop well under a second after it lands in
 LATE_UPDATE_MS = 120_000
 """Each read of catalogue updates goes back this far, so an update that lands in RawTree up to 2 minutes
 after a newer one is still read (about 30 rows per read)."""
+RELOAD_S = 60.0
+"""The whole catalogue, every catalogue update and the best sellers are read again this often, in their own
+thread: the final round switches to new data, which may replace the catalogue rather than update it."""
+RELOAD_MARGIN_MS = 5_000
+"""Updates the loop read up to this long before a reload started are kept through it, in case the reload
+missed them (RawTree shows an update up to about 2 s after its time)."""
 RECENT_CHANGE_MS = 10_000
 """Products whose stock changed this recently are never recommended (see `recently_changed`, issue #14)."""
 
@@ -94,7 +100,10 @@ class LiveState:
     """
 
     def __init__(
-        self, rawtree: RawTree, on_retry: Callable[[], None] = lambda: None
+        self,
+        rawtree: RawTree,
+        on_retry: Callable[[], None] = lambda: None,
+        reload_s: float = RELOAD_S,
     ) -> None:
         self.rawtree = rawtree
         self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
@@ -105,8 +114,47 @@ class LiveState:
                 lambda: rawtree.catalog_updates_since(0), "catalogue updates", on_retry
             )
         )
+        self._reloaded: tuple[int, list[Record], list[str], list[Record]] | None = None
         self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
+        threading.Thread(
+            target=self._reload_forever, args=(reload_s,), daemon=True
+        ).start()
+
+    def _reload_forever(self, every_s: float) -> None:
+        """Read everything again; the refresh thread swaps it in, so only that thread changes the state."""
+        while True:
+            time.sleep(every_s)
+            try:
+                self._reloaded = (
+                    now_ms(),
+                    self.rawtree.catalog(),
+                    self.rawtree.best_sellers(),
+                    self.rawtree.catalog_updates_since(0),
+                )
+            except Exception as e:  # noqa: BLE001  keep the last full read; try again next time
+                print(f"catalogue reload failed: {e}", flush=True)
+
+    def _swap_in_reload(self) -> None:
+        started_ms, catalog, best_sellers, all_updates = self._reloaded  # type: ignore[misc]
+        self._reloaded = None
+        before = {row["product_id"] for row in self.catalog}
+        after = {row["product_id"] for row in catalog}
+        if before != after:
+            print(
+                f"catalogue changed: {len(after)} products"
+                f" ({len(after - before)} added, {len(before - after)} gone)",
+                flush=True,
+            )
+        updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
+        updates.add(all_updates)
+        # Only the rows read around and after the reload: anything older that RawTree no longer has is dropped.
+        updates.add(
+            row
+            for row in self.updates.rows
+            if row["ts_ms"] >= started_ms - RELOAD_MARGIN_MS
+        )
+        self.catalog, self.best_sellers, self.updates = catalog, best_sellers, updates
 
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
@@ -121,6 +169,8 @@ class LiveState:
             time.sleep(
                 max(0.0, STATE_REFRESH_S - (now_ms() - self.refreshed_ms) / 1000)
             )
+            if self._reloaded is not None:
+                self._swap_in_reload()
             try:
                 rows = self.rawtree.catalog_updates_since(
                     self.updates.since_ms(now_ms())

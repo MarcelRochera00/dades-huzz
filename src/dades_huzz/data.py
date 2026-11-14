@@ -26,7 +26,8 @@ class State:
     new_products: frozenset[str]
     """Products added during the event: a request that viewed one is a cold request."""
     fallback: tuple[str, ...]
-    """The all-time best sellers that are available, best first: the baseline, and what pads a short answer."""
+    """The all-time best sellers that are available, best first, then every other available product: the
+    baseline, and what pads a short answer, even with a catalogue of products that never sold."""
     category: dict[str, str] = field(default_factory=dict)
     """Every product's category, including the products added during the event, as soon as the loop sees them."""
     subcategory: dict[str, str] = field(default_factory=dict)
@@ -71,7 +72,8 @@ def current_state(
     available = frozenset(
         p for p, is_active in active.items() if is_active and p not in out_of_stock
     )
-    fallback = tuple(p for p in best_sellers if p in available)
+    ranked = [p for p in dict.fromkeys(best_sellers) if p in available]
+    fallback = (*ranked, *sorted(available - set(ranked)))
     return State(available, price, frozenset(new), fallback, category, subcategory)
 
 
