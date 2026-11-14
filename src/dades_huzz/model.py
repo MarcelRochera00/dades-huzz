@@ -410,7 +410,7 @@ def lauri(
 
     With `day` (Lauri Colossus) the shopper's day so far in `State` counts too: what they carted and viewed
     today and the ranking of their three most viewed categories of the day join the candidates, and the
-    day's features are scored. A `State` that does not carry the shopper's day gives an empty one.
+    day's features are scored.
     """
     by_segment = {
         segment: _feature_weights(weights[segment]) for segment in LAURI_SEGMENTS
@@ -418,9 +418,9 @@ def lauri(
 
     def day_of(user: str, state: State) -> LauriDay:
         return LauriDay(
-            getattr(state, "shopper_categories", {}).get(user, {}),
-            getattr(state, "shopper_carted", {}).get(user, frozenset()),
-            getattr(state, "shopper_viewed", {}).get(user, ()),
+            state.shopper_categories.get(user, {}),
+            state.shopper_carted.get(user, frozenset()),
+            state.shopper_viewed.get(user, ()),
         )
 
     trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]

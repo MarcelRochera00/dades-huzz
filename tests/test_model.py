@@ -575,22 +575,11 @@ def test_lauri_never_pads_with_an_unavailable_product():
     assert set(answer) <= available
 
 
-def _with_day(state, **day):
-    """The state carrying shoppers' days, whether or not `State` has those fields yet."""
-    import dataclasses
-    from types import SimpleNamespace
-
-    fields = {f.name: getattr(state, f.name) for f in dataclasses.fields(state)}
-    return SimpleNamespace(**{**fields, **day})
-
-
 def test_lauri_colossus_brings_in_and_ranks_the_shoppers_day():
     products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
-    state = _with_day(
-        _lauri_state(
-            available=frozenset(products) | {"c_cart", "c_seen"},
-            category={p: p[0] for p in [*products, "c_cart", "c_seen"]},
-        ),
+    state = _lauri_state(
+        available=frozenset(products) | {"c_cart", "c_seen"},
+        category={p: p[0] for p in [*products, "c_cart", "c_seen"]},
         shopper_categories={"u": {"b": 5, "a": 1}},
         shopper_carted={"u": frozenset({"c_cart"})},
         shopper_viewed={"u": ("c_seen",)},
@@ -608,8 +597,7 @@ def test_lauri_colossus_brings_in_and_ranks_the_shoppers_day():
 def test_lauri_titan_ignores_the_day_and_keeps_its_thirteen_weights():
     from dades_huzz.model import lauri
 
-    state = _with_day(
-        _lauri_state(),
+    state = _lauri_state(
         shopper_categories={"u": {"b": 5}},
         shopper_carted={"u": frozenset({"b_9"})},
         shopper_viewed={"u": ("b_8",)},
@@ -626,18 +614,6 @@ def test_lauri_titan_ignores_the_day_and_keeps_its_thirteen_weights():
     assert recommend(request, state)[:2] == ["a_3", "b_3"]
     assert not {"b_8", "b_9"} & set(recommend(request, state))
     assert recommend(request, state) == recommend(request, _lauri_state())
-
-
-def test_lauri_colossus_answers_without_a_day_in_the_state():
-    from types import SimpleNamespace
-
-    state = _lauri_state()
-    names = ("available", "price", "fallback", "category", "subcategory", "trend")
-    bare = SimpleNamespace(**{name: getattr(state, name) for name in names})
-    bare.recent_purchases = state.recent_purchases
-    request = {"request_id": "r", "user_id": "u", "recent_views": []}
-    weights = {"day_carted": 5.0, "log_history_sales": 1.0}
-    assert _lauri(weights, day=True)(request, bare) == _lauri(weights)(request, state)
 
 
 def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
