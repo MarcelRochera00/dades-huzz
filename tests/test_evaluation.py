@@ -199,3 +199,40 @@ def test_paired_difference_does_not_depend_on_the_order_of_the_requests():
     )
     assert forward.low == pytest.approx(backward.low)
     assert forward.high == pytest.approx(backward.high)
+
+
+def test_carousel_report_rates_the_order_a_score_would_give():
+    import numpy as np
+
+    from dades_huzz.evaluation import auc, carousel_report, log_likelihood
+
+    # Two requests of three products each; the bought one sat in slot 3 (request 0) and slot 1 (request 1).
+    purchased = np.array([0, 0, 1, 1, 0, 0], dtype=float)
+    slot = np.array([0, 1, 2, 0, 1, 2])
+    request = np.array([0, 0, 0, 1, 1, 1])
+    keep = np.ones(6, dtype=bool)
+    better = np.array([1.0, 2.0, 9.0, 9.0, 2.0, 1.0])  # puts every bought product first
+    worse = np.array([9.0, 2.0, 1.0, 1.0, 2.0, 9.0])  # puts every bought product last
+    good = carousel_report(better, better, purchased, slot, request, keep)
+    bad = carousel_report(worse, worse, purchased, slot, request, keep)
+    assert good["purchases"] == 2 and good["requests"] == 2
+    assert good["mrr"] == 1.0 and bad["mrr"] == 1 / 3
+    assert good["mrr_shown"] == (1 / 3 + 1) / 2  # where the carousel had put them
+    assert good["top3"] == 1.0 and good["top3_shown"] == 1.0
+    assert good["log_likelihood"] > bad["log_likelihood"]
+    assert auc(better, purchased) == 1.0 and auc(worse, purchased) == 0.0
+    assert np.isnan(auc(better, np.zeros(6)))
+    assert log_likelihood(np.zeros(2), np.array([1.0, 0.0])) == -2 * np.log(2)
+
+
+def test_carousel_report_only_counts_the_held_out_rows():
+    import numpy as np
+
+    from dades_huzz.evaluation import carousel_report
+
+    purchased = np.array([1, 0, 0, 0, 0, 1], dtype=float)
+    slot = np.array([0, 1, 2, 0, 1, 2])
+    request = np.array([0, 0, 0, 1, 1, 1])
+    score = np.arange(6, dtype=float)
+    held_out = carousel_report(score, score, purchased, slot, request, request == 1)
+    assert held_out["requests"] == 1 and held_out["purchases"] == 1
