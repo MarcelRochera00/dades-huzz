@@ -18,11 +18,11 @@ Using two prepared tabs saves time and preserves each view's selections.
 
 **0:00–0:40 · Team, Backup use**
 
-> “A shopper opens the carousel. We have three seconds to pick ten available products. Our first
-> question is whether using what the shopper just viewed helps us sell more. Destroyer recommends
-> best sellers from the last category they viewed. Terminator also lets products the shopper
-> already viewed appear. We ran both at the same time, with a planned 50/50 split, so each had to
-> answer under the same store conditions.”
+> “A simulated shopper opens the carousel. We have three seconds to pick ten available products.
+> Destroyer recommends best sellers from the last category they viewed. Terminator can also
+> include products they already viewed. We built the lists on earlier days and checked them on
+> later days, accounting for what the old carousel tended to show. Then we ran both versions at
+> the same time with a planned 50/50 split.”
 
 **0:40–1:40 · Click Purchase results, then return to Backup use**
 
@@ -43,23 +43,24 @@ organizers' expected purchase rates to make practice decisions. [Experiments 17�
 **1:40–2:30 · Switch to the prepared Jury tab**
 
 > “So far we've compared every request we assigned, even if it needed a backup. Here I'm asking
-> a shopper-facing question. What happened when people actually saw Terminator's list? This is
-> the broader Practice run. These cards show purchases and sales from confirmed displays. You
+> a shopper-facing question. What happened when the simulator showed Terminator's list? This is
+> the broader Practice run. These cards show simulated purchases and sales from confirmed displays. You
 > can see when those purchases happened and how far the feedback has arrived.”
 
 Read **Purchases**, **Sales**, and the **Feedback through** timestamp from the screen. Point once to
 **Purchases over time**. In the checked snapshot at **18:43 CET on 14 November**, the cards showed
 **167 simulated purchases**, **€6,490.33 in simulated sales**, and **0.92 purchases per 100 times
-shown** across **18,249 confirmed displays**. Use the current cards when recording. When presenting
-final results, choose **Final** and the team's selected model version if feedback is available.
-Read the **Official team score** when published. It also reflects cold requests and reliability,
-and it uses the simulator's purchase probabilities.
+shown** across **18,249 confirmed displays**. Use the current cards when recording. If final
+feedback is available for the presentation, prepare **Jury → Final** and the team's selected
+model version. Replace the Practice narration with “Here's what the simulator recorded when it
+showed [selected version] during Sunday's final.” Read the **Official team score** when published.
+It also reflects cold requests and reliability, and it uses the simulator's purchase probabilities.
 
 **2:30–3:00 · Stay on Jury**
 
-> “RawTree gives us the store activity to build the recommendations, the requests to answer, and
-> the feedback to see what shoppers actually did. That gives the team evidence to decide which
-> version to run and to check whether it can answer reliably.”
+> “RawTree gives us the store activity to build recommendations, the requests to answer, and
+> the feedback to check what sold. When a product is added during the event, it has no past
+> sales. One version we built uses live sales to move it up the list as it starts selling.”
 
 ### If the slot is four or five minutes
 
@@ -92,7 +93,7 @@ and the evidence behind it. Reserve the live interaction for the decision the ju
 | Slide | What to show | What the jury should understand |
 | --- | --- | --- |
 | **1. One shopper, ten products, three seconds** | Follow a shopper who just viewed a product added during the event. Show the RawTree request and catalogue updates, how the recommender checks availability and ranks candidates, and the ordered list written back to RawTree. Use an illustrative request and the rules of the team's selected version. | Why shopper context, current stock and live store activity matter. |
-| **2. What made us change the recommendation** | Show the historical slot observation (0.45 purchases per 100 displays in slot 1 versus 0.10 in slot 5), then the Destroyer versus our best-seller version practice result. Label the first as historical observation and the second as the organizers' expected purchase rates for versions tested during the same window. | How the team used history to form a hypothesis and a live test to decide what to try next. |
+| **2. What made us change the recommendation** | Show the historical slot observation (0.45 purchases per 100 displays in slot 1 versus 0.10 in slot 5). Explain that we built lists on earlier days and evaluated on later days, accounting for how often the old carousel showed each product in each slot. Then show the Destroyer versus our best-seller version practice result, labeled as organizers' expected purchase rates from the same window. | How the team used history to form and test a hypothesis, then tried it on the live stream. |
 | **3. What we chose and how we know** | State the team's final choice when available, the evidence used to choose it, and one limitation. Use a still of the Jury results with the round and timestamp visible. If available, label the official team score separately from the confirmed purchases and sales. | What the system delivered and where the evidence is still uncertain. |
 
 **One live interaction between slides 2 and 3.** Prepare **Team → Backup use** on the agreed
