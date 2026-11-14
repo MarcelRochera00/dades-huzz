@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RawTree Challenge · Real-Time Recommendation</title>
+<meta name="description" content="RawTree challenge at Datathon FME 2026: build a recommender that answers live shoppers in 3 seconds.">
+<link rel="icon" href="https://datathon.rawtree.dev/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com/">
+<link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+<link href="RawTree%20Challenge%20%C2%B7%20Real-Time%20Recommendation_files/css2_BZgs.css" rel="stylesheet">
+<link rel="stylesheet" href="RawTree%20Challenge%20%C2%B7%20Real-Time%20Recommendation_files/common_BZgs.css">
+<style>
+  /* challenge page only; shared tokens, header and footer live in /common.css */
+  .grid > *, .split > *, .score > *, .tables > *, .timeline > *, .chips > *, .flow > *, .step > *, .cmd, .cmd code { min-width: 0; }
+  .hero .wrap { min-height: 520px; padding-top: 168px; padding-bottom: 64px; display: flex; flex-direction: column; justify-content: center; }
+  .hero h1 { max-width: 640px; }
+  .lede { font-size: 20px; line-height: 1.4; color: var(--muted-foreground); max-width: 560px; margin: 0; }
+  .lede b { color: var(--web-foreground); font-weight: 400; }
+  .cta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 32px; }
+  .hero-meta { display: flex; flex-wrap: wrap; align-items: stretch; gap: 16px; margin-top: 40px; }
+  .countdown { display: inline-flex; flex-direction: column; gap: 6px; background: var(--background); border-radius: var(--radius); padding: 16px 22px; }
+  .countdown .label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); }
+  .countdown .units { display: flex; gap: 18px; }
+  .countdown .u b { display: block; font-family: var(--font-mono); font-size: 30px; font-weight: 400; line-height: 1.15; color: var(--web-foreground); font-variant-numeric: tabular-nums; }
+  .countdown .u span { font-family: var(--font-mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); }
+  .facts { display: flex; flex-direction: column; justify-content: center; gap: 4px; background: var(--background); border-radius: var(--radius); padding: 16px 22px; font-size: 15px; color: var(--muted-foreground); }
+  .facts b { color: var(--web-foreground); font-weight: 500; }
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; }
+  .stat { background: var(--background); border-radius: var(--radius); padding: 24px; }
+  .stat b { display: block; font-size: 32px; font-weight: 400; letter-spacing: -0.025em; color: var(--web-foreground); }
+  .stat span { font-size: 15px; color: var(--muted-foreground); }
+  section.block { padding-top: 96px; }
+  .head { max-width: 640px; margin-bottom: 32px; }
+  h2 { font-size: clamp(30px, 3.4vw, 36px); line-height: 1.25; letter-spacing: -0.025em; margin: 16px 0 12px; font-weight: 400; color: var(--web-foreground); }
+  .head p:not(.eyebrow) { color: var(--muted-foreground); margin: 0; font-size: 18px; }
+  .grid { display: grid; gap: 24px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--background); border-radius: var(--radius); padding: 32px; color: var(--web-foreground); }
+  .card h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.025em; font-weight: 600; }
+  .card p { margin: 0; color: var(--muted-foreground); }
+  .card p + p { margin-top: 14px; }
+  .card p b { color: var(--web-foreground); font-weight: 500; }
+  .num { font-family: var(--font-mono); font-size: 13px; letter-spacing: .05em; color: var(--muted-foreground); margin-bottom: 24px; display: block; }
+  .card code, .head code, .step code, .table-card code, ul.rules code, .loop code, details code { font-size: .88em; color: var(--web-foreground); background: var(--muted); padding: 1px 6px; border-radius: 6px; }
+  .panel { position: relative; overflow: hidden; border: 1px solid rgb(26 22 21 / 10%); border-radius: var(--radius); padding: 56px 40px; }
+  .panel::before { content: ""; position: absolute; inset: 0; background: url(/blueprint.svg) center / cover no-repeat; pointer-events: none; }
+  .panel > * { position: relative; }
+  .flow { display: grid; grid-template-columns: 1fr 48px 1fr 48px 1fr 48px 1fr; }
+  .flow .card { padding: 22px; box-shadow: 0 16px 32px -16px rgb(26 22 21 / 25%); }
+  .flow .card h3 { font-size: 17px; }
+  .flow .card p { font-size: 14.5px; }
+  .flow .num { margin-bottom: 14px; color: var(--primary); }
+  .link { position: relative; align-self: center; height: 2px; background: repeating-linear-gradient(90deg, rgb(26 22 21 / 30%) 0 4px, transparent 4px 8px); }
+  .link::after { content: ""; position: absolute; top: -4px; left: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 4px var(--brand-50); animation: travel 2.4s linear infinite; }
+  .link:nth-of-type(4)::after { animation-delay: .8s; }
+  .link:nth-of-type(6)::after { animation-delay: 1.6s; }
+  @keyframes travel { from { left: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: calc(100% - 10px); opacity: 0; } }
+  @keyframes travel-v { from { top: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { top: calc(100% - 10px); opacity: 0; } }
+  .loop { margin: 20px 0 0; color: var(--muted-foreground); font-size: 15px; }
+  .loop::before { content: "↺"; font-size: 20px; color: var(--primary); margin-right: 10px; vertical-align: -2px; }
+  .tables { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .table-card { background: var(--background); border-radius: var(--radius); padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+  .table-card .name { font-family: var(--font-mono); font-size: 15px; color: var(--web-foreground); }
+  .table-card p { margin: 0; color: var(--muted-foreground); font-size: 15px; }
+  .table-card .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 6px; }
+  .tag { font-family: var(--font-mono); font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+  .tag.shared { background: var(--badge-info-bg); color: var(--badge-info-fg); }
+  .tag.live { background: var(--badge-success-bg); color: var(--badge-success-fg); }
+  .tag.yours { background: var(--badge-purple-bg); color: var(--badge-purple-fg); }
+  .tag.size { background: var(--muted); color: var(--muted-foreground); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+  .term { overflow: hidden; border-radius: 16px; background: var(--web-foreground); color: #F7F7F4; box-shadow: 0 32px 64px -16px rgb(26 22 21 / 40%); }
+  .term .dots { display: flex; gap: 8px; padding: 18px 20px 0; }
+  .term .dots i { width: 12px; height: 12px; border-radius: 50%; background: rgb(255 255 255 / 20%); }
+  .term .title { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--code-gray); }
+  .term pre { margin: 0; padding: 16px 24px 24px; font-size: 13.5px; line-height: 1.65; overflow-x: auto; }
+  .k { color: var(--code-blue); } .s { color: var(--code-yellow); } .n { color: var(--code-green); } .c { color: var(--code-gray); }
+  ul.rules { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; align-content: start; }
+  ul.rules li { display: flex; gap: 14px; align-items: flex-start; background: var(--background); border-radius: var(--radius); padding: 18px 20px; color: var(--muted-foreground); }
+  ul.rules li::before { content: "✓"; color: var(--primary); font-weight: 600; flex: none; }
+  ul.rules b { font-weight: 500; color: var(--web-foreground); }
+  .timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .tl { position: relative; background: var(--background); border-radius: var(--radius); padding: 28px; border: 1px solid transparent; }
+  .when { font-family: var(--font-mono); font-size: 13px; color: var(--muted-foreground); }
+  .tl h3 { margin: 8px 0 8px; font-size: 20px; font-weight: 600; letter-spacing: -0.025em; color: var(--web-foreground); }
+  .tl p { margin: 0; color: var(--muted-foreground); font-size: 15px; }
+  .tl.now { border-color: var(--primary); }
+  .tl.now::after { content: attr(data-badge); position: absolute; top: 22px; right: 22px; font-family: var(--font-mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); }
+  .tl.done { opacity: .55; }
+  .callout { margin-top: 24px; background: var(--primary); color: var(--primary-foreground); border-radius: var(--radius); padding: 22px 28px; font-size: 17px; }
+  .callout b { color: #fff; font-weight: 500; }
+  .score { display: grid; grid-template-columns: 7fr 3fr; gap: 24px; }
+  .bar { display: grid; grid-template-columns: 170px 1fr 48px; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 15px; color: var(--web-foreground); }
+  .bar:last-of-type { border-bottom: none; }
+  .bar .track { height: 8px; background: var(--muted); border-radius: 999px; overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 999px; background: var(--primary); }
+  .bar .fill.j { background: var(--web-foreground); }
+  .bar b { font-family: var(--font-mono); font-weight: 400; text-align: right; }
+  .bar small { display: block; color: var(--muted-foreground); font-size: 13px; }
+  .formula { margin-top: 20px; font-family: var(--font-mono); font-size: 13.5px; background: var(--muted); border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: nowrap; color: var(--web-foreground); }
+  .big { font-size: 48px; font-weight: 400; letter-spacing: -0.025em; line-height: 1; margin: 16px 0 12px; color: var(--web-foreground); }
+  .chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; }
+  .chip { background: var(--background); border-radius: var(--radius); padding: 24px; }
+  .chip i { font-style: normal; display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 999px; font-size: 16px; margin-bottom: 16px; }
+  .chip b { display: block; font-weight: 600; letter-spacing: -0.01em; color: var(--web-foreground); }
+  .chip span { color: var(--muted-foreground); font-size: 15px; }
+  .steps { display: grid; gap: 12px; counter-reset: s; }
+  .step { display: grid; grid-template-columns: 48px 1fr; gap: 16px; background: var(--background); border-radius: var(--radius); padding: 24px; align-items: start; }
+  .step::before { counter-increment: s; content: "0" counter(s); font-family: var(--font-mono); color: var(--muted-foreground); font-size: 14px; padding-top: 2px; }
+  .step h3 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--web-foreground); }
+  .step p { margin: 0; color: var(--muted-foreground); font-size: 15px; }
+  .cmd { margin-top: 14px; display: flex; align-items: center; gap: 10px; background: var(--web-foreground); color: #F7F7F4; border-radius: 12px; padding: 10px 10px 10px 18px; font-family: var(--font-mono); font-size: 13.5px; }
+  .cmd code { flex: 1; overflow-x: auto; white-space: nowrap; background: none; color: inherit; padding: 0; font-size: inherit; border-radius: 0; }
+  .cmd .p { color: var(--code-gray); margin-right: 8px; }
+  .cmd button { flex: none; font: 500 12px var(--font-sans); color: var(--web-foreground); background: #F7F7F4; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .resources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  details { background: var(--background); border-radius: var(--radius); padding: 0 24px; margin-bottom: 8px; }
+  summary { cursor: pointer; list-style: none; padding: 20px 0; font-weight: 500; color: var(--web-foreground); position: relative; padding-right: 32px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { position: absolute; right: 0; top: 20px; content: "+"; font-family: var(--font-mono); color: var(--muted-foreground); }
+  details[open] summary::after { content: "−"; }
+  details p { margin: 0; padding: 0 0 22px; color: var(--muted-foreground); }  /* padding, not margin: a margin escapes the <details> box */
+  .final { text-align: center; padding: 128px 0; }
+  .final h2 { font-size: clamp(30px, 4.5vw, 48px); margin: 0; }
+  .final p { margin: 20px auto 0; max-width: 620px; font-size: 18px; color: var(--muted-foreground); }
+  .final .cta { justify-content: center; }
+  @media (max-width: 1100px) {
+    .stats { grid-template-columns: repeat(3, 1fr); }
+    .g3, .tables, .timeline { grid-template-columns: 1fr 1fr; }
+    .chips { grid-template-columns: repeat(3, 1fr); }
+    .flow { grid-template-columns: 1fr; }
+    .link { width: 2px; height: 32px; justify-self: center; background: repeating-linear-gradient(180deg, rgb(26 22 21 / 30%) 0 4px, transparent 4px 8px); }
+    .link::after { top: 0; left: -4px; animation-name: travel-v; }
+    .split, .score { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .hero .wrap { padding-top: 104px; padding-bottom: 16px; min-height: 0; }
+    .lede { font-size: 18px; }
+    .cta { gap: 12px; }
+    .cta .btn.lg { width: 100%; justify-content: center; }
+    .stats, .g3, .tables, .timeline, .chips { grid-template-columns: 1fr; gap: 12px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat { padding: 18px; }
+    .stat b { font-size: 26px; }
+    .grid, .split, .score { gap: 12px; }
+    section.block { padding-top: 64px; }
+    .card, .tl { padding: 24px; }
+    .panel { padding: 24px 16px; }
+    .bar { grid-template-columns: 116px 1fr 36px; gap: 10px; }
+    .countdown .units { gap: 12px; }
+    .countdown .u b { font-size: 24px; }
+    .final { padding: 96px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .link::after { animation: none; display: none; } }
+</style>
+</head>
+<body>
+
+<header class="site-header" id="site-header">
+  <div class="hbar">
+    <div class="inner">
+      <a class="brand" href="#top" aria-label="RawTree datathon challenge"><span class="logo" aria-hidden="true"></span><b>RawTree</b><small>× Datathon FME 2026</small></a>
+      <nav class="links" aria-label="Sections">
+        <a href="#challenge">Challenge</a><a href="#data">Data</a><a href="#timeline">Timeline</a><a href="#scoring">Scoring</a><a href="#faq">FAQ</a>
+      </nav>
+      <div class="actions">
+        <a class="btn secondary repo-link" href="https://github.com/rawtreedb/datathon-fme-2026" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn primary" href="https://datathon.rawtree.dev/leaderboard">Leaderboard</a>
+        <button type="button" class="menu-btn" id="menu-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-menu"><svg class="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16"></path><path d="M4 12h16"></path><path d="M4 19h16"></path></svg><svg class="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="mobile-menu" id="mobile-menu">
+  <a href="https://datathon.rawtree.dev/leaderboard">Leaderboard</a>
+  <a class="repo-link" href="https://github.com/rawtreedb/datathon-fme-2026" target="_blank" rel="noopener">GitHub repo ↗</a>
+  <hr>
+  <a href="#challenge">Challenge</a><a href="#how">How it works</a><a href="#data">Data</a><a href="#submit">Submit</a><a href="#timeline">Timeline</a><a href="#scoring">Scoring</a><a href="#start">Get started</a><a href="#faq">FAQ</a>
+</div>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Datathon FME 2026 · RawTree challenge</p>
+      <h1>Real-time recommendation for shoppers who won't wait</h1>
+      <p class="lede">A shopper arrives every few seconds. <b>You have 3 seconds to choose the 10 products they will see.</b> A hidden model simulates each shopper's decision to click and buy.</p>
+      <div class="cta">
+        <a class="btn primary lg" href="#start">Start the challenge</a>
+        <a class="btn secondary lg" href="https://datathon.rawtree.dev/leaderboard">Live leaderboard</a>
+      </div>
+      <div class="hero-meta">
+        <div class="countdown" aria-live="polite">
+          <span class="label" id="cd-label">Final round starts in</span>
+          <div class="units" id="cd-units"><div class="u"><b id="cd-d">00</b><span>days</span></div><div class="u"><b id="cd-h">22</b><span>hours</span></div><div class="u"><b id="cd-m">22</b><span>min</span></div><div class="u"><b id="cd-s">37</b><span>sec</span></div></div>
+        </div>
+        <div class="facts"><span><b>14–15 November 2026</b> · UPC Barcelona</span><span>Practice from <b>Sat 10:00 CET</b></span><span>Final round <b>Sun 10:00–12:00 CET</b></span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><b>3 s</b><span>to answer each shopper</span></div>
+      <div class="stat"><b>10</b><span>products, ranked</span></div>
+      <div class="stat"><b>~5,000</b><span>products in 10 categories</span></div>
+      <div class="stat"><b>3 / s</b><span>shoppers, day and night</span></div>
+      <div class="stat"><b>2 h</b><span>final round that counts</span></div>
+    </div>
+  </div>
+
+  <section class="block" id="challenge">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">The challenge</p>
+        <h2>Sell more than the best sellers</h2>
+        <p>On the home page and on every product page there is a row of ten recommended products. Right now it just shows the best sellers of the category the shopper is looking at. Build something that sells more, tested live on shoppers arriving in real time.</p>
+      </div>
+      <div class="grid g3">
+        <div class="card"><span class="num">01</span><h3>Read requests</h3><p>Every request describes a shopper and what they just did in this session: device, region, page and the products they viewed.</p></div>
+        <div class="card"><span class="num">02</span><h3>Answer in 3 seconds</h3><p>Write back an ordered list of 10 product IDs. Late or invalid answers are replaced by the best sellers.</p></div>
+        <div class="card"><span class="num">03</span><h3>Learn as you go</h3><p>Private feedback on every answer (clicks, purchases, revenue) and a shared stream of everything happening in the store.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">How it works</p>
+        <h2>Your system is your submission</h2>
+        <p>No files to upload: a loop that runs on its own, all weekend, against RawTree.</p>
+      </div>
+      <div class="panel">
+        <div class="flow" aria-label="Request flow">
+          <div class="card"><span class="num">STEP 1</span><h3>A shopper arrives</h3><p>A new record lands in <code>shop.requests</code>, about 3 per second.</p></div>
+          <div class="link" aria-hidden="true"></div>
+          <div class="card"><span class="num">STEP 2</span><h3>Your system reads it</h3><p>Poll the table, compute features, rank the catalogue.</p></div>
+          <div class="link" aria-hidden="true"></div>
+          <div class="card"><span class="num">STEP 3</span><h3>You answer</h3><p>Insert 10 product IDs into <code>team_NN.submissions</code> in 3&nbsp;s.</p></div>
+          <div class="link" aria-hidden="true"></div>
+          <div class="card"><span class="num">STEP 4</span><h3>The shopper reacts</h3><p>A hidden model simulates the decision to click and buy, and writes <code>team_NN.feedback</code>.</p></div>
+        </div>
+        <p class="loop">Read your feedback and the live <code>shop.events</code> stream, improve, redeploy. Every team gets the same shoppers at the same time.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="data">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">The data</p>
+        <h2>Everything lives in RawTree</h2>
+        <p>One API key per team: read the shared <code>shop</code> database, read and write your own <code>team_NN</code>. JSON in, SQL out, no schema.</p>
+      </div>
+      <div class="tables">
+        <div class="table-card"><span class="name">shop.catalog</span><p>~5,000 products: category, subcategory, brand, price, a short description, active flag.</p><div class="tags"><span class="tag shared">shared</span><span class="tag size">5K records</span></div></div>
+        <div class="table-card"><span class="name">shop.history_sessions</span><p>60 days of carousel impressions from the old system: what was shown, clicked and bought, plus propensities.</p><div class="tags"><span class="tag shared">shared</span><span class="tag size">2M records</span></div></div>
+        <div class="table-card"><span class="name">shop.history_events</span><p>60 days of organic activity outside the carousel: views, add-to-cart, purchases.</p><div class="tags"><span class="tag shared">shared</span><span class="tag size">12M records</span></div></div>
+        <div class="table-card"><span class="name">shop.requests</span><p>One record per shopper arriving at the carousel. This is what you answer.</p><div class="tags"><span class="tag live">live</span><span class="tag size">3 / s</span></div></div>
+        <div class="table-card"><span class="name">shop.events · catalog_updates</span><p>Organic activity in real time (spot the trends) and catalogue changes: new products, prices, stock-outs.</p><div class="tags"><span class="tag live">live</span><span class="tag size">~50 / s</span></div></div>
+        <div class="table-card"><span class="name">team_NN.feedback · scratch</span><p>What happened with each of your answers, only visible to you. Plus a free table for your own features.</p><div class="tags"><span class="tag yours">your team only</span></div></div>
+      </div>
+      <div class="split">
+        <div class="term"><div class="dots"><i></i><i></i><i></i><span class="title">shop.requests</span></div>
+<pre>{
+  <span class="k">"request_id"</span>: <span class="s">"r_01JD8K3..."</span>,
+  <span class="k">"ts"</span>: <span class="s">"2026-11-14T16:02:11.482Z"</span>,
+  <span class="k">"user_id"</span>: <span class="s">"u_7f21c9"</span>,
+  <span class="k">"is_new_user"</span>: <span class="n">false</span>,
+  <span class="k">"context"</span>: {<span class="k">"device"</span>: <span class="s">"ios"</span>, <span class="k">"region"</span>: <span class="s">"Catalunya"</span>, <span class="k">"page"</span>: <span class="s">"product"</span>},
+  <span class="k">"recent_views"</span>: [
+    {<span class="k">"product_id"</span>: <span class="s">"p_5a1e"</span>, <span class="k">"ts"</span>: <span class="s">"2026-11-14T16:01:40Z"</span>}
+  ]
+}</pre></div>
+        <div class="term"><div class="dots"><i></i><i></i><i></i><span class="title">team_NN.feedback</span></div>
+<pre>{
+  <span class="k">"request_id"</span>: <span class="s">"r_01JD8K3..."</span>,
+  <span class="k">"shown"</span>: [<span class="s">"p_91aa"</span>, <span class="s">"p_5a1e"</span>, <span class="s">"..."</span>],
+  <span class="k">"served_by"</span>: <span class="s">"team"</span>,      <span class="c">// or "fallback"</span>
+  <span class="k">"fallback_reason"</span>: <span class="s">""</span>,     <span class="c">// missing · late · invalid</span>
+  <span class="k">"latency_ms"</span>: <span class="n">840</span>,
+  <span class="k">"clicked"</span>: <span class="s">"p_91aa"</span>,
+  <span class="k">"purchased"</span>: <span class="s">"p_91aa"</span>,
+  <span class="k">"revenue_eur"</span>: <span class="n">34.99</span>
+}</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="submit">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">What you submit</p>
+        <h2>One record per request</h2>
+        <p>Insert into <code>team_NN.submissions</code> through the RawTree API.</p>
+      </div>
+      <div class="split" style="margin-top:0">
+        <div class="term"><div class="dots"><i></i><i></i><i></i><span class="title">POST /v1/tables/submissions?database=team_NN</span></div>
+<pre>[{
+  <span class="k">"request_id"</span>: <span class="s">"r_01JD8K3..."</span>,
+  <span class="k">"items"</span>: [<span class="s">"p_91aa"</span>, <span class="s">"p_5a1e"</span>, <span class="s">"p_c302"</span>, <span class="s">"p_77d0"</span>, <span class="s">"p_0e12"</span>,
+            <span class="s">"p_a4b8"</span>, <span class="s">"p_19f3"</span>, <span class="s">"p_6d2c"</span>, <span class="s">"p_e801"</span>, <span class="s">"p_3b5a"</span>],
+  <span class="k">"model_version"</span>: <span class="s">"v3-mf-bandit"</span>
+}]</pre></div>
+        <ul class="rules">
+          <li><span><b>Exactly 10 distinct, active product IDs.</b> Products go out of stock during the event.</span></li>
+          <li><span><b>Within 3 seconds</b> of the request <code>ts</code>, measured by the organisers. The starter baseline answers in about 1 s.</span></li>
+          <li><span><b>One answer per request.</b> Batch your inserts, e.g. every half second.</span></li>
+          <li><span><b>Order matters.</b> Shoppers look at the first slots much more than at the last ones.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="timeline">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Timeline</p>
+        <h2>Practise on Saturday, count on Sunday</h2>
+        <p>All times Barcelona time (CET, UTC+1).</p>
+      </div>
+      <div class="timeline">
+        <div class="tl done" data-from="0" data-to="2026-11-14T09:00:00Z" data-badge="next"><span class="when">Saturday · opening</span><h3>Kick-off</h3><p>Data, keys and starter kit released. Get your key at the RawTree stand.</p></div>
+        <div class="tl now" data-from="2026-11-14T09:00:00Z" data-to="2026-11-15T09:00:00Z" data-badge="now"><span class="when">Sat 10:00 → Sun 10:00</span><h3>Practice round</h3><p>Live stream and public leaderboard, updated every 10 minutes. Iterate as much as you like.</p></div>
+        <div class="tl" data-from="2026-11-15T09:00:00Z" data-to="2026-11-15T11:00:00Z" data-badge="now"><span class="when">Sun 10:00 → 12:00</span><h3>Final round</h3><p>New shoppers, new products, new trends. The leaderboard goes dark; only a status light per team.</p></div>
+        <div class="tl" data-from="2026-11-15T11:00:00Z" data-to="2099-01-01T00:00:00Z" data-badge="now"><span class="when">Sunday 12:00</span><h3>Results</h3><p>The stream stops and the final ranking appears on the leaderboard. Then, presentations.</p></div>
+      </div>
+      <div class="callout"><b>Make sure your best version is running by 10:00 on Sunday.</b> Whatever it answers between 10:00 and 12:00 is what gets scored, and shoppers keep arriving while you sleep.</div>
+    </div>
+  </section>
+
+  <section class="block" id="scoring">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Evaluation</p>
+        <h2>70 points from the stream, 30 from the jury</h2>
+        <p>Only the final round counts. The practice round is there for you to learn. The leaderboard shows the 70 stream points normalised to a score out of 100 (about 71 conversion, 14 cold start, 14 reliability).</p>
+      </div>
+      <div class="score">
+        <div class="card">
+          <div class="bar"><span>Conversion<small>expected purchases per 100 requests, so luck does not count</small></span><div class="track"><div class="fill" style="width:100%"></div></div><b>50</b></div>
+          <div class="bar"><span>Cold start<small>the same, on cold requests only</small></span><div class="track"><div class="fill" style="width:20%"></div></div><b>10</b></div>
+          <div class="bar"><span>Reliability<small>share of requests answered validly and on time</small></span><div class="track"><div class="fill" style="width:20%"></div></div><b>10</b></div>
+          <div class="bar"><span>Method<small>sound approach, validated offline before going live</small></span><div class="track"><div class="fill j" style="width:20%"></div></div><b>10</b></div>
+          <div class="bar"><span>Learning from the stream<small>exploration, trends, price changes, cold start</small></span><div class="track"><div class="fill j" style="width:20%"></div></div><b>10</b></div>
+          <div class="bar"><span>Use of RawTree<small>features in SQL, embeddings, the pipeline</small></span><div class="track"><div class="fill j" style="width:10%"></div></div><b>5</b></div>
+          <div class="bar"><span>Communication<small>would a product manager get it?</small></span><div class="track"><div class="fill j" style="width:10%"></div></div><b>5</b></div>
+          <div class="formula">score = 100 × (team − baseline) / (oracle − baseline), clipped to [0, 100]</div>
+        </div>
+        <div class="card">
+          <p class="eyebrow">Two yardsticks</p>
+          <div class="big">0 → 100</div>
+          <p><b>Baseline</b> (0) = the 10 all-time best sellers that are in stock (the starter kit). <b>Oracle</b> (100) = the 10 products the hidden model itself would pick. The leaderboard also shows the organisers' <b>reference</b> recommender as a benchmark. It can be beaten.</p>
+          <p>A request is <b>cold</b> when the shopper is new (<code>is_new_user</code>) or their <code>recent_views</code> include a product added during the event.</p>
+          <p>The jury part is a short presentation with a demo on Sunday afternoon. Tie-breaker: expected revenue per request in the final round.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="novelties">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">The store moves</p>
+        <h2>Teams that generalise beat teams that memorise</h2>
+      </div>
+      <div class="chips">
+        <div class="chip"><i style="background:var(--badge-info-bg);color:var(--badge-info-fg)">◍</i><b>New shoppers</b><span>Many arrive with no history at all.</span></div>
+        <div class="chip"><i style="background:var(--badge-purple-bg);color:var(--badge-purple-fg)">✦</i><b>New products</b><span>Only a description, no interactions yet.</span></div>
+        <div class="chip"><i style="background:var(--badge-pink-bg);color:var(--badge-pink-fg)">↗</i><b>Trends</b><span>Visible early in the live events.</span></div>
+        <div class="chip"><i style="background:var(--badge-warning-bg);color:var(--badge-warning-fg)">€</i><b>Price changes</b><span>Announced in the catalogue updates.</span></div>
+        <div class="chip"><i style="background:var(--muted);color:var(--muted-foreground)">∅</i><b>Stock-outs</b><span>Inactive products are invalid answers.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Get started</p>
+        <h2>On the leaderboard in 30 minutes</h2>
+        <p>The starter kit has a 50-line baseline, SQL examples and an offline evaluation notebook.</p>
+      </div>
+      <div class="steps">
+        <div class="step"><div><h3>Get your key</h3><p>At the RawTree stand when you register your team: a <code>TEAM_ID</code> like <code>team_07</code> and a <code>RAWTREE_API_KEY</code>. One per team, keep it private.</p></div></div>
+        <div class="step"><div><h3>Clone the repo</h3><p>Copy <code>.env.example</code> to <code>.env</code> and fill in your credentials.</p><div class="cmd"><span class="p">$</span><code id="clone-cmd">git clone https://github.com/rawtreedb/datathon-fme-2026.git</code><button type="button" data-copy="clone-cmd">Copy</button></div></div></div>
+        <div class="step"><div><h3>Run the baseline</h3><p>It polls new requests, answers with the best sellers of the category of the last product viewed and inserts in batches.</p><div class="cmd"><span class="p">$</span><code id="run-cmd">pip install -r starter/requirements.txt &amp;&amp; python starter/recommender.py</code><button type="button" data-copy="run-cmd">Copy</button></div></div></div>
+        <div class="step"><div><h3>Meet RawTree, beat the baseline</h3><p>RawTree is built for agents: point yours at the docs and let it find its way. Then explore the history, evaluate offline, deploy, read your feedback, repeat.</p>
+          <div class="cmd"><span class="p">$</span><code id="cli-cmd">curl -fsSL https://rawtree.com/install.sh | bash</code><button type="button" data-copy="cli-cmd">Copy</button></div>
+          <div class="resources">
+            <a class="btn secondary" href="https://rawtree.com/llms.txt" target="_blank" rel="noopener">Docs for agents ↗</a>
+            <a class="btn secondary" href="https://rawtree.com/docs" target="_blank" rel="noopener">RawTree docs ↗</a>
+            <a class="btn secondary repo-link" href="https://github.com/rawtreedb/datathon-fme-2026" target="_blank" rel="noopener">Starter kit ↗</a>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">FAQ</p>
+        <h2>Questions teams ask</h2>
+      </div>
+      <details><summary>Can we use AI coding agents and LLMs?</summary><p>Yes. Everything you present has to be yours to explain: anything a team cannot explain may be penalised.</p></details>
+      <details><summary>What happens if my system is down or slow?</summary><p>That shopper sees the best sellers (the fallback) and you lose reliability points. Your feedback tells you why: <code>missing</code>, <code>late</code> or <code>invalid</code>.</p></details>
+      <details><summary>Does the practice round count?</summary><p>No. Only Sunday 10:00–12:00 counts. Practice is for learning, and the public leaderboard shows the last hour.</p></details>
+      <details><summary>Can I keep changing my code during the final?</summary><p>Yes, your system keeps answering while you work. You will not see the ranking until 12:00, so have your best version running by 10:00.</p></details>
+      <details><summary>Do we need a server?</summary><p>No, a laptop works if it stays awake and online all night. Requests not answered get the fallback.</p></details>
+      <details><summary>"Illegal type Dynamic" in my SQL?</summary><p>RawTree is schemaless: every column is <code>Dynamic</code>. Cast join keys and a few aggregates, e.g. <code>a.product_id::String = b.product_id::String</code>.</p></details>
+      <details><summary>Why do queries on <code>shop.requests</code> fail before Saturday 10:00?</summary><p>The live tables (<code>shop.requests</code>, <code>shop.events</code>, <code>shop.catalog_updates</code>) are empty until the stream opens, so their columns do not exist yet and you get <code>Unknown expression identifier</code>. They fill at 10:00; the baseline just retries. Explore the history meanwhile.</p></details>
+      <details><summary>Does luck affect the ranking?</summary><p>No. Whether a shopper buys is random, so the score uses each shopper's probability of buying the products you showed, from the simulator's hidden model, not the coin flip. Your feedback shows the realised clicks and purchases; on average they agree. A shopper who already bought a product tends not to want it again, so real purchases still feed later scores a little.</p></details>
+      <details><summary>Is the data real?</summary><p>No. Shoppers, sessions and outcomes come from a simulator with a secret seed. Finding a public dataset gives you nothing you do not already have.</p></details>
+      <details><summary>Can we share keys or feedback with other teams?</summary><p>No. Feedback is private to each team, and recommendations must be produced by your code.</p></details>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <h2>Ready when the shoppers are</h2>
+      <p>Get your key at the RawTree stand, run the baseline, and climb the leaderboard.</p>
+      <div class="cta"><a class="btn primary lg repo-link" href="https://github.com/rawtreedb/datathon-fme-2026" target="_blank" rel="noopener">Get the starter kit</a><a class="btn secondary lg" href="https://datathon.rawtree.dev/leaderboard">Live leaderboard</a></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="lip" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <a class="brand" href="https://rawtree.com/" aria-label="RawTree home"><span class="logo" aria-hidden="true"></span><b>RawTree</b></a>
+        <p class="tagline">No schema. No indexes. No materialized views. Any scale.</p>
+        <div class="social"><a href="https://www.linkedin.com/company/rawtree" target="_blank" rel="noreferrer noopener" aria-label="LinkedIn">in</a><a href="https://x.com/rawtreedb" target="_blank" rel="noreferrer noopener" aria-label="X">X</a></div>
+      </div>
+      <div class="cols">
+        <div><p>Challenge</p><nav aria-label="Challenge"><a href="#challenge">Brief</a><a href="https://datathon.rawtree.dev/leaderboard">Leaderboard</a><a class="repo-link" href="https://github.com/rawtreedb/datathon-fme-2026" target="_blank" rel="noopener">Starter kit</a></nav></div>
+        <div><p>Pages</p><nav aria-label="Pages"><a href="https://rawtree.com/">Home</a><a href="https://rawtree.com/docs">Docs</a><a href="https://rawtree.com/blog">Blog</a></nav></div>
+        <div><p>Information</p><nav aria-label="Information"><a href="mailto:contact@rawtree.com">Contact</a><a href="https://rawtree.com/terms">Terms of use</a></nav></div>
+      </div>
+    </div>
+    <p class="word">RawTree</p>
+    <div class="bottom"><p>© 2026 RawTree · Datathon FME, Universitat Politècnica de Catalunya</p><p>A Tinybird product</p></div>
+  </div>
+</footer>
+
+<script src="RawTree%20Challenge%20%C2%B7%20Real-Time%20Recommendation_files/common_BZgs.js"></script>
+<script>
+  // Public repo for participants (private until the opening; the links work once it is public).
+  const REPO_URL = "https://github.com/rawtreedb/datathon-fme-2026";
+  if (REPO_URL) {
+    document.querySelectorAll(".repo-link").forEach(a => { a.href = REPO_URL; a.target = "_blank"; a.rel = "noopener"; });
+    document.getElementById("clone-cmd").textContent = `git clone ${REPO_URL}.git`;
+  }
+
+  // countdown to the next milestone + current phase in the timeline
+  const MILESTONES = [
+    [Date.parse("2026-11-14T09:00:00Z"), "Stream opens in"],
+    [Date.parse("2026-11-15T09:00:00Z"), "Final round starts in"],
+    [Date.parse("2026-11-15T11:00:00Z"), "Final round ends in"],
+  ];
+  const pad = n => String(n).padStart(2, "0");
+  function tick() {
+    const now = Date.now(), next = MILESTONES.find(([t]) => t > now);
+    if (!next) {
+      document.getElementById("cd-label").textContent = "The final ranking is out";
+      document.getElementById("cd-units").hidden = true;
+    } else {
+      let s = Math.floor((next[0] - now) / 1000);
+      document.getElementById("cd-label").textContent = next[1];
+      document.getElementById("cd-d").textContent = pad(Math.floor(s / 86400)); s %= 86400;
+      document.getElementById("cd-h").textContent = pad(Math.floor(s / 3600)); s %= 3600;
+      document.getElementById("cd-m").textContent = pad(Math.floor(s / 60));
+      document.getElementById("cd-s").textContent = pad(s % 60);
+    }
+    document.querySelectorAll(".tl").forEach(el => {
+      const from = el.dataset.from === "0" ? 0 : Date.parse(el.dataset.from), to = Date.parse(el.dataset.to);
+      el.classList.toggle("now", now >= from && now < to);
+      el.classList.toggle("done", now >= to);
+      el.dataset.badge = from === 0 ? "next" : "now";
+    });
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  document.querySelectorAll("[data-copy]").forEach(btn => btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById(btn.dataset.copy).textContent);
+      btn.textContent = "Copied";
+    } catch { btn.textContent = "Select & copy"; }
+    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+  }));
+</script>
+
+
+</body></html>

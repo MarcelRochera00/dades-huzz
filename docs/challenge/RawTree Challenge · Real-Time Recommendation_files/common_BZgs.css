@@ -1,0 +1,117 @@
+/* Shared by the challenge page (/) and the leaderboard (/leaderboard).
+   rawtree.com tokens and components (rawtree-platform/web: globals.css .landing-light, landing.css, web-header/web-footer/web-button/web-brand). */
+:root {
+  color-scheme: only light;
+  --page: #F7F7F4;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --web-foreground: #1A1615;
+  --primary: oklch(0.5 0.26 264);             /* brand-500 */
+  --primary-foreground: oklch(0.95 0.02 270); /* brand-50 */
+  --brand-50: oklch(0.95 0.02 270);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --code-yellow: #EE9A48; --code-green: #02B078; --code-blue: #7C9BFA; --code-gray: #8A9799;
+  --badge-success-bg: #e8faeb; --badge-success-fg: #1fa63d;
+  --badge-error-bg: #fdecec; --badge-error-fg: #de1616;
+  --badge-info-bg: #e0f5fc; --badge-info-fg: #0089b4;
+  --badge-purple-bg: #f4e8ff; --badge-purple-fg: #8a2be2;
+  --badge-warning-bg: #fff0e3; --badge-warning-fg: #d9650a;
+  --badge-pink-bg: #fde7f1; --badge-pink-fg: #d0145f;
+  --gold: #E3A008;
+  --radius: 0.625rem;
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 96px; }  /* native scroll like rawtree.com: no smooth scrolling */
+body { margin: 0; background: var(--page); color: var(--foreground); font: 16px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: var(--primary); text-decoration: none; }
+code, pre { font-family: var(--font-mono); }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+.wrap { max-width: 1340px; margin: 0 auto; padding: 0 40px; }
+.eyebrow { font-family: var(--font-mono); font-size: 14px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); margin: 0; }
+h1 { font-size: 48px; line-height: 1.25; letter-spacing: -0.025em; margin: 16px 0 20px; font-weight: 400; color: var(--web-foreground); }
+
+/* hero background */
+.hero { position: relative; }
+.hero::before { content: ""; position: absolute; left: 0; right: 0; top: -256px; height: max(1232px, 85.6vw); background: url(/Fractal.svg) center top / 100vw auto no-repeat; opacity: .5; pointer-events: none; z-index: 0; }
+.hero .wrap { position: relative; z-index: 1; }
+main > :not(.hero) { position: relative; z-index: 1; }  /* content after the hero sits above its background */
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; font-weight: 500; padding: 8px 20px; font-size: 14px; line-height: 20px; border: 0; transition: color .15s, background-color .15s, border-color .15s; transition-timing-function: cubic-bezier(.4, 0, .2, 1); white-space: nowrap; }
+.btn.primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.primary:hover { opacity: .9; }
+.btn.secondary { background: var(--background); color: var(--web-foreground); border: 1px solid var(--border); }
+.btn.secondary:hover { border-color: var(--primary); color: var(--primary); }
+.btn.lg { padding: 12px 32px; font-size: 16px; line-height: 24px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 500; background: var(--background); color: var(--web-foreground); }
+.pill.mono { font-family: var(--font-mono); font-weight: 400; }
+
+/* brand */
+.brand { display: inline-flex; align-items: center; gap: .55rem; color: var(--foreground); }
+.brand .logo { width: 32px; height: 32px; background: currentColor; -webkit-mask: url(/rawtree-logo.svg) center / contain no-repeat; mask: url(/rawtree-logo.svg) center / contain no-repeat; }
+.brand b { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -0.025em; }
+.brand small { font-size: 14px; color: var(--muted-foreground); font-weight: 400; margin-left: 2px; white-space: nowrap; }
+@media (max-width: 1000px) { .brand small { display: none; } }  /* no room next to the five nav links */
+
+/* header: full width, becomes a blurred pill on scroll (.scrolled, not .pill: that class is the badge above); full-screen menu on mobile */
+.site-header { position: fixed; inset: 0 0 auto 0; z-index: 30; }
+.site-header .hbar { max-width: 1300px; margin: 0 auto; padding: 20px 20px 0; transition: all .3s cubic-bezier(.4, 0, .2, 1); }
+.site-header .inner { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding-bottom: 16px; transition: all .3s cubic-bezier(.4, 0, .2, 1); }
+.site-header.scrolled .hbar { max-width: 1280px; padding-top: 12px; }
+.site-header.scrolled .inner { border-radius: 999px; background: color-mix(in oklab, var(--background) 50%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 8px 20px; }
+.site-header nav.links { display: inline-flex; gap: 24px; }
+.site-header nav.links a { color: var(--foreground); transition: color .15s cubic-bezier(.4, 0, .2, 1); }
+.site-header nav.links a:hover, .site-header nav.links a[aria-current] { color: var(--primary); }
+.site-header .actions { display: inline-flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.menu-btn { display: none; width: 40px; height: 40px; padding: 0; border-radius: 999px; border: 0; background: var(--background); color: var(--web-foreground); cursor: pointer; position: relative; z-index: 31; }
+.menu-btn svg { width: 20px; height: 20px; }
+.menu-btn .i-close, body.menu-open .menu-btn .i-menu { display: none; }
+body.menu-open .menu-btn .i-close { display: block; }
+.mobile-menu { position: fixed; inset: 0; z-index: 29; background: var(--primary); padding: 80px 20px 32px; display: none; flex-direction: column; gap: 16px; overflow: hidden; }
+.mobile-menu::before { content: ""; position: absolute; inset: 0; background: url(/FooterBlueprint.svg) center / cover no-repeat; pointer-events: none; }
+.mobile-menu a { position: relative; color: var(--background); font-size: 18px; line-height: 28px; font-weight: 500; transition: color .15s; }
+.mobile-menu a:hover { color: #fff; }
+.mobile-menu hr { position: relative; width: 100%; border: 0; border-top: 1px solid oklch(1 0 0 / 20%); margin: 8px 0; }
+body.menu-open { overflow: hidden; }
+body.menu-open .mobile-menu { display: flex; }
+body.menu-open .site-header .brand { color: var(--background); position: relative; z-index: 31; }
+
+/* footer */
+footer { position: relative; overflow: hidden; background: var(--primary); padding-bottom: 48px; color: var(--background); }
+footer .lip { position: relative; z-index: 1; height: 40px; background: var(--page); border-radius: 0 0 14px 14px; }
+footer::before { content: ""; position: absolute; inset: 40px 0 0 0; background: url(/FooterBlueprint.svg) center / cover no-repeat; pointer-events: none; }
+footer .wrap { position: relative; z-index: 1; padding-top: 64px; padding-left: 20px; padding-right: 20px; }
+footer .top { display: grid; grid-template-columns: 1fr auto; gap: 40px; }
+footer .brand { color: var(--background); }
+footer .tagline { margin: 8px 0 0; font-size: 18px; max-width: 320px; }
+footer .social { display: flex; gap: 8px; margin-top: 16px; }
+footer .social a { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 999px; background: #fff; color: var(--primary); font-size: 12px; font-weight: 600; }
+footer .social a:hover { opacity: .85; }
+footer .cols { display: grid; grid-template-columns: repeat(3, auto); gap: 56px; margin: 0 16px 56px 0; }
+footer .cols p { margin: 0; padding-top: 4px; font-family: var(--font-mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+footer .cols nav { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+footer .cols a { color: var(--background); }
+footer .cols a:hover { color: #fff; }
+footer .word { margin: 0; font-size: clamp(74px, 13vw, 180px); font-weight: 700; letter-spacing: -0.025em; line-height: 1.5; }
+footer .bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; margin-top: 40px; padding-top: 24px; font-size: 14px; line-height: 20px; }
+footer .bottom p { margin: 0; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 0 24px; }
+  h1 { font-size: 36px; }
+  .site-header .hbar { padding: 16px 16px 0; }
+  .site-header.scrolled .inner { padding: 8px 12px; }
+  .site-header .inner { grid-template-columns: 1fr auto; }
+  .site-header nav.links, .site-header .actions .btn, .site-header .actions .pill { display: none; }
+  .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .hero::before { top: -16px; background-size: 800px auto; background-position: left top; }
+  footer { padding-bottom: 32px; }
+  footer .wrap { padding-top: 32px; padding-left: 16px; padding-right: 16px; }
+  footer .top { grid-template-columns: 1fr; }
+  footer .cols { grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .site-header .hbar, .site-header .inner { transition: none; } }
