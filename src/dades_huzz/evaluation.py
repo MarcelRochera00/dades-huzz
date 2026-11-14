@@ -410,6 +410,7 @@ def carousel_report(
         auc(served_score[keep & (slot == k)], purchased[keep & (slot == k)])
         for k in range(3)
     ]
+    valid = [a for a in aucs if not np.isnan(a)]
     return {
         "requests": len(np.unique(request[keep])),
         "purchases": len(new),
