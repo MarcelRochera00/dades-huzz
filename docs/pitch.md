@@ -33,7 +33,7 @@ or has looked at a product that was just added to the store.” [Challenge brief
 
 **Headline.** In a Saturday practice window from **15:30 to 15:50 Barcelona time**, Destroyer reached
 **1.04 expected purchases per 100 requests** on the organizers' practice leaderboard, compared with
-**0.75** for best sellers in the same window. The organizers reported 1,843 and 1,757 requests,
+**0.75** for our best-seller version in the same window. The organizers reported 1,843 and 1,757 requests,
 respectively. That supported using the shopper's last-viewed category as the next starting point.
 Use this window as the spoken example. [Experiment 17](experiments.md)
 
