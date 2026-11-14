@@ -14,20 +14,25 @@ def best_sellers(request: Record, state: State) -> list[str]:
 
 
 def category_best_sellers(
-    category_of: Mapping[str, str], ranked_by_category: Mapping[str, Sequence[str]]
+    category_of: Mapping[str, str],
+    ranked_by_category: Mapping[str, Sequence[str]],
+    keep_viewed: bool = False,
 ) -> Recommend:
     """Tati Destroyer: the best sellers of the category the shopper viewed last, then the overall ones.
 
     `category_of` maps a product to its category; `ranked_by_category` lists each category's products,
-    best seller first. Both are precomputed from the history. Products the shopper already viewed in this
-    session are not shown again, and only available products are shown.
+    best seller first. Both are precomputed from the history. Only available products are shown.
+
+    Products the shopper already viewed in this session are left out, unless `keep_viewed` (Tati
+    Terminator): then they stay where they rank, because in the old log a viewed product shown in the top
+    three slots was bought about 9x more often than the other products shown in the same requests.
     """
 
     def recommend(request: Record, state: State) -> list[str]:
         viewed = [view["product_id"] for view in request.get("recent_views") or []]
         category = category_of.get(viewed[-1]) if viewed else None
         ranked = ranked_by_category.get(category, ()) if category else ()
-        seen = set(viewed)
+        seen = set() if keep_viewed else set(viewed)
         answer: list[str] = []
         for product_id in (*ranked, *state.fallback):
             if product_id in seen or product_id not in state.available:

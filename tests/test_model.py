@@ -60,3 +60,19 @@ def test_category_best_sellers_falls_back_without_recent_views():
     recommend = category_best_sellers(category_of={}, ranked_by_category={})
     state = _state()
     assert recommend({"recent_views": []}, state) == list(state.fallback[:10])
+
+
+def test_category_best_sellers_can_keep_viewed_products_where_they_rank():
+    from dades_huzz.model import category_best_sellers
+
+    # shoppers buy products they already viewed far more often: Tati Terminator keeps them in place
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={"electronics": ["e_1", "v_last", "e_gone", "e_2"]},
+        keep_viewed=True,
+    )
+    state = _state(extra={"e_1", "e_2", "v_last"})
+    request = {"recent_views": [{"product_id": "v_last"}]}
+    answer = recommend(request, state)
+    assert answer[:4] == ["e_1", "v_last", "e_2", "p_00"]
+    assert len(set(answer)) == 10
