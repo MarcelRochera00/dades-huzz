@@ -266,3 +266,56 @@ def test_lauri_features_describe_a_candidate_for_this_shopper():
     assert by_name[2]["log_live_sales"] == math.log(4)
     assert math.isclose(by_name[0]["relative_price"], math.log(2))
     assert not rows[3].any()
+
+
+def test_lauri_features_know_the_shoppers_day():
+    import math
+
+    from dades_huzz.features import (
+        LAURI_FEATURES,
+        LauriDay,
+        LauriSignals,
+        lauri_features,
+    )
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys", "p3": "books"},
+        subcategory={},
+        price={},
+        history_sales={"p2": 9},
+        live_sales={},
+        median_log_price={},
+    )
+    day = LauriDay({"toys": 3, "books": 1}, frozenset({"p2"}), ("p3",))
+    rows = lauri_features(["p1", "p2", "p3"], [], None, signals, day)
+    by_name = [dict(zip(LAURI_FEATURES, row, strict=True)) for row in rows]
+    assert by_name[0]["day_category_share"] == 0.75
+    assert by_name[2]["day_category_share"] == 0.25
+    assert [row["day_carted"] for row in by_name] == [0, 1, 0]
+    assert [row["day_viewed"] for row in by_name] == [0, 0, 1]
+    assert math.isclose(by_name[1]["day_history_sales"], 0.75 * math.log(10))
+    without = lauri_features(["p1", "p2", "p3"], [], None, signals)
+    assert not without[:, -4:].any()
+    assert (without[:, :-4] == rows[:, :-4]).all()
+
+
+def test_a_day_replay_never_sees_what_came_after_the_cut():
+    from dades_huzz.features import DayReplay
+
+    category = {"p1": "toys", "p2": "toys", "p3": "books"}
+    replay = DayReplay(
+        [
+            (10, "view", "p1"),
+            (20, "add_to_cart", "p1"),
+            (30, "view", "p3"),
+            (40, "purchase", "p1"),
+            (50, "view", "p2"),
+        ]
+    )
+    day = replay.until(35, category)
+    assert day.categories == {"toys": 4, "books": 1}
+    assert day.carted == {"p1"} and list(day.viewed) == ["p3", "p1"]
+    day = replay.until(45, category)
+    assert day.carted == set() and list(day.viewed) == ["p3", "p1"]
+    day = replay.until(15, category)  # an earlier cut starts the day again
+    assert day.categories == {"toys": 1} and list(day.viewed) == ["p1"]

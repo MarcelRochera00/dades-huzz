@@ -573,3 +573,105 @@ def test_lauri_never_pads_with_an_unavailable_product():
     state = _lauri_state(available=available)
     answer = _lauri()({"request_id": "r", "user_id": "u", "recent_views": []}, state)
     assert set(answer) <= available
+
+
+def _with_day(state, **day):
+    """The state carrying shoppers' days, whether or not `State` has those fields yet."""
+    import dataclasses
+    from types import SimpleNamespace
+
+    fields = {f.name: getattr(state, f.name) for f in dataclasses.fields(state)}
+    return SimpleNamespace(**{**fields, **day})
+
+
+def test_lauri_colossus_brings_in_and_ranks_the_shoppers_day():
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    state = _with_day(
+        _lauri_state(
+            available=frozenset(products) | {"c_cart", "c_seen"},
+            category={p: p[0] for p in [*products, "c_cart", "c_seen"]},
+        ),
+        shopper_categories={"u": {"b": 5, "a": 1}},
+        shopper_carted={"u": frozenset({"c_cart"})},
+        shopper_viewed={"u": ("c_seen",)},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    weights = {"day_carted": 5.0, "day_viewed": 3.0, "day_category_share": 1.0}
+    answer = _lauri(weights, day=True)(request, state)
+    assert answer[:2] == ["c_cart", "c_seen"]
+    assert all(product.startswith("b_") for product in answer[2:])
+    assert _lauri(weights, day=True)({**request, "user_id": "other"}, state) == _lauri(
+        weights
+    )(request, state)
+
+
+def test_lauri_titan_ignores_the_day_and_keeps_its_thirteen_weights():
+    from dades_huzz.model import lauri
+
+    state = _with_day(
+        _lauri_state(),
+        shopper_categories={"u": {"b": 5}},
+        shopper_carted={"u": frozenset({"b_9"})},
+        shopper_viewed={"u": ("b_8",)},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    thirteen = {"weights": [0.0] * 7 + [1.0] + [0.0] * 5}  # log_history_sales only
+    recommend = lauri(
+        {"new": thirteen, "returning": thirteen},
+        ranked_by_category={},
+        history_sales={"a_3": 9, "b_3": 1},
+        live_sales={},
+        median_log_price={},
+    )
+    assert recommend(request, state)[:2] == ["a_3", "b_3"]
+    assert not {"b_8", "b_9"} & set(recommend(request, state))
+    assert recommend(request, state) == recommend(request, _lauri_state())
+
+
+def test_lauri_colossus_answers_without_a_day_in_the_state():
+    from types import SimpleNamespace
+
+    state = _lauri_state()
+    names = ("available", "price", "fallback", "category", "subcategory", "trend")
+    bare = SimpleNamespace(**{name: getattr(state, name) for name in names})
+    bare.recent_purchases = state.recent_purchases
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    weights = {"day_carted": 5.0, "log_history_sales": 1.0}
+    assert _lauri(weights, day=True)(request, bare) == _lauri(weights)(request, state)
+
+
+def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
+    import numpy as np
+
+    from dades_huzz.features import (
+        LAURI_DAY_FEATURES,
+        LAURI_FEATURES,
+        LauriTrainingRows,
+    )
+    from dades_huzz.model import fit_lauri, lauri_scores
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    features = rng.random((n * 10, len(LAURI_FEATURES)))
+    chance = 1 / (1 + np.exp(-(-2.0 + 2.0 * features[:, -3])))  # day_carted matters
+    rows = LauriTrainingRows(
+        features=features,
+        slot=np.tile(np.arange(10), n),
+        owned=np.zeros(n * 10),
+        purchased=(rng.random(n * 10) < chance).astype(float),
+        clicked=np.zeros(n * 10),
+        request=np.repeat(np.arange(n), 10),
+        ts_ms=np.zeros(n * 10),
+        is_new_user=np.repeat(rng.random(n) < 0.5, 10),
+    )
+    everything = np.ones(n * 10, dtype=bool)
+    titan = [f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES]
+    without = fit_lauri(rows, everything, rows.purchased, l2=1.0, features=titan)
+    full = fit_lauri(rows, everything, rows.purchased, l2=1.0)
+    for segment in ("new", "returning"):
+        assert len(without[segment]["weights"]) == len(LAURI_FEATURES)
+        assert without[segment]["weights"][-4:] == [0.0] * 4
+        assert len(without[segment]["slot"]) == 9
+        assert 1.5 < full[segment]["weights"][-3] < 2.5
+    old = {s: {**w, "weights": w["weights"][:13]} for s, w in without.items()}
+    assert np.allclose(lauri_scores(old, rows)[0], lauri_scores(without, rows)[0])

@@ -10,6 +10,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -437,11 +438,42 @@ LAURI_FEATURES = (
     "log_live_sales",
     "log_price",
     "relative_price",
+    "day_category_share",
+    "day_carted",
+    "day_viewed",
+    "day_history_sales",
 )
 """What Lauri knows about one candidate for one request, in the order of the columns of `lauri_features`.
 `session_history_sales` and `viewed_history_sales` are the history sales counted only as far as the product is
 in a category of the session, or was viewed: in our own carousels a best seller is bought far more often than
-a slow seller, and most of all when the shopper viewed it (docs/experiments.md row 44)."""
+a slow seller, and most of all when the shopper viewed it (docs/experiments.md row 44).
+
+New features go at the end, never in between: weights stored earlier (Lauri Titan's thirteen) stay valid and
+count the later features as zero."""
+
+LAURI_DAY_FEATURES = LAURI_FEATURES[-4:]
+"""What Lauri Colossus adds, from the shopper's day (`LauriDay`): the category's share of today's views, the
+product is in today's cart, the product was viewed today, and the history sales counted as far as that share."""
+DAY_CART_WEIGHT = 3
+DAY_VIEWED_MAX = 20
+"""As the serving loop keeps a shopper's day in `State` (docs/contracts.md): an add-to-cart counts three views
+of its category, and the last twenty distinct products viewed are kept."""
+DAY_LAG_MS = 10_000
+"""Training sees a shopper's day only up to this long before the request: live, `State` runs a few seconds
+behind `shop.events`, so a training row must not know more than a live one would."""
+
+
+@dataclass(frozen=True)
+class LauriDay:
+    """One shopper's day so far in `shop.events`, as `State` keeps it (`shopper_categories`, `shopper_carted`,
+    `shopper_viewed`)."""
+
+    categories: Mapping[str, int]
+    """Category to views today; an add-to-cart counts DAY_CART_WEIGHT."""
+    carted: AbstractSet[str]
+    """Products carted today and not bought since."""
+    viewed: Sequence[str]
+    """The last DAY_VIEWED_MAX distinct products viewed today, latest first."""
 
 
 @dataclass(frozen=True)
@@ -473,9 +505,13 @@ def lauri_features(
     viewed: Sequence[str],
     profile: Mapping[str, float] | None,
     signals: LauriSignals,
+    day: LauriDay | None = None,
 ) -> np.ndarray:
-    """One row of LAURI_FEATURES per product, for a shopper who viewed `viewed` (oldest first) and whose
-    shopper profile is `profile`. The same function builds the training rows and the live ones."""
+    """One row of LAURI_FEATURES per product, for a shopper who viewed `viewed` (oldest first), whose
+    shopper profile is `profile` and whose day so far is `day` (without it the day's features are zero).
+    The same function builds the training rows and the live ones."""
+    day_views = sum(day.categories.values()) if day else 0
+    day_viewed = frozenset(day.viewed) if day else frozenset()
     category, subcategory = signals.category, signals.subcategory
     recency = {product: len(viewed) - i for i, product in enumerate(viewed)}
     last_category = category.get(viewed[-1]) if viewed else None
@@ -497,6 +533,7 @@ def lauri_features(
         )
         sales = math.log1p(signals.history_sales.get(product, 0))
         share = session[name] / views if views else 0.0
+        day_share = day.categories.get(name, 0) / day_views if day_views else 0.0
         row[:] = (
             product in recency,
             1 / recency[product] if product in recency else 0.0,
@@ -512,6 +549,10 @@ def lauri_features(
             math.log1p(signals.live_sales.get(product, 0)),
             log_price,
             log_price - signals.median_log_price.get(name, log_price),
+            day_share,
+            day is not None and product in day.carted,
+            product in day_viewed,
+            sales * day_share,
         )
     return rows
 
@@ -519,7 +560,8 @@ def lauri_features(
 LAURI_FEEDBACK = """
 SELECT f.request_id::String AS request_id, toUnixTimestamp64Milli(f.ts::DateTime64(3)) AS ts_ms,
        f.shown AS shown, f.purchased::String AS purchased, f.clicked::String AS clicked,
-       r.user_id::String AS user_id, r.is_new_user::Bool AS is_new_user, r.recent_views AS recent_views
+       r.user_id::String AS user_id, r.is_new_user::Bool AS is_new_user, r.recent_views AS recent_views,
+       toUnixTimestamp64Milli(r.ts::DateTime64(3)) AS request_ms
 FROM {team}.feedback AS f
 INNER JOIN shop.requests AS r ON f.request_id::String = r.request_id::String
 WHERE f.served_by::String = 'team' AND f.request_id::String != '__init__'
@@ -532,6 +574,17 @@ SELECT product_id::String AS product_id, user_id::String AS user_id,
 FROM shop.events
 WHERE event_type::String = 'purchase' AND ts::DateTime64(3) >= '{since}'
 ORDER BY ts_ms"""
+
+DAY_EVENTS = """
+SELECT user_id::String AS u, product_id::String AS p, event_type::String AS e,
+       toUnixTimestamp64Milli(ts::DateTime64(3)) AS t
+FROM shop.events
+WHERE cityHash64(user_id::String) % {parts} = {part}
+  AND user_id::String IN (
+      SELECT r.user_id::String FROM {team}.feedback AS f
+      INNER JOIN shop.requests AS r ON f.request_id::String = r.request_id::String
+      WHERE f.served_by::String = 'team')"""
+"""Every event of the shoppers we answered, one part at a time, to rebuild their day before each request."""
 
 LIVE_SALES_STEP_MS = 10 * 60_000
 """Training counts a product's live sales up to the last ten-minute mark before the request: serving
@@ -552,6 +605,53 @@ class _SalesBefore(Mapping):
 
     def __len__(self) -> int:
         return len(self.times)
+
+
+class DayReplay:
+    """One shopper's events (time, kind, product), replayed up to each of their requests into a `LauriDay`,
+    counted as the serving loop counts them."""
+
+    def __init__(self, events: Iterable[tuple[int, str, str]]) -> None:
+        self.events = sorted(events)
+        self._restart()
+
+    def _restart(self) -> None:
+        self.next, self.cut_ms = 0, 0
+        self.categories: dict[str, int] = {}
+        self.carted: set[str] = set()
+        self.viewed: list[str] = []
+
+    def until(self, cut_ms: int, category: Mapping[str, str]) -> LauriDay:
+        """The day before `cut_ms`. The result is only valid until the next call."""
+        if cut_ms < self.cut_ms:
+            self._restart()
+        self.cut_ms = cut_ms
+        while self.next < len(self.events) and self.events[self.next][0] < cut_ms:
+            _, kind, product = self.events[self.next]
+            self.next += 1
+            if kind != "purchase" and (name := category.get(product)):
+                weight = DAY_CART_WEIGHT if kind == "add_to_cart" else 1
+                self.categories[name] = self.categories.get(name, 0) + weight
+            if kind == "view":
+                if product in self.viewed:
+                    self.viewed.remove(product)
+                self.viewed.insert(0, product)
+                del self.viewed[DAY_VIEWED_MAX:]
+            elif kind == "add_to_cart":
+                self.carted.add(product)
+            elif kind == "purchase":
+                self.carted.discard(product)
+        return LauriDay(self.categories, self.carted, self.viewed)
+
+
+def shopper_day_replays(rawtree: RawTree, parts: int = 16) -> dict[str, DayReplay]:
+    """A replay of the day of every shopper we answered, read from `shop.events`."""
+    events: dict[str, list[tuple[int, str, str]]] = {}
+    for part in range(parts):
+        sql = DAY_EVENTS.format(team=rawtree.team, parts=parts, part=part)
+        for row in rawtree.query(sql, timeout=120):
+            events.setdefault(row["u"], []).append((row["t"], row["e"], row["p"]))
+    return {user: DayReplay(rows) for user, rows in events.items()}
 
 
 @dataclass(frozen=True)
@@ -601,6 +701,7 @@ def lauri_training_rows(rawtree: RawTree, parts: int = 8) -> LauriTrainingRows:
     profiles = shopper_profiles(rawtree, until=PRACTICE_ROUND_START)
     bought = shopper_purchases(rawtree, until=PRACTICE_ROUND_START)
     medians = median_log_prices(category, price)
+    days = shopper_day_replays(rawtree)
     features, owned = [], []
     for row in feedback:
         cut = row["ts_ms"] - row["ts_ms"] % LIVE_SALES_STEP_MS
@@ -614,8 +715,13 @@ def lauri_training_rows(rawtree: RawTree, parts: int = 8) -> LauriTrainingRows:
         )
         viewed = [view["product_id"] for view in row["recent_views"] or []]
         user = row["user_id"]
+        day = (
+            days[user].until(row["request_ms"] - DAY_LAG_MS, category)
+            if user in days
+            else None
+        )
         features.append(
-            lauri_features(row["shown"], viewed, profiles.get(user), signals)
+            lauri_features(row["shown"], viewed, profiles.get(user), signals, day)
         )
         mine = set(bought.get(user, ())) | {
             product

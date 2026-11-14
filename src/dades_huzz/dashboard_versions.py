@@ -66,6 +66,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#e07b00",
         "Learned ranking: weights trained on our own carousels score each product for the shopper.",
     ),
+    "lauri-colossus-feedback": VersionStyle(
+        "#7a3d00",
+        "Titan retrained on more carousels, plus the shopper's day: today's categories, cart and views.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 

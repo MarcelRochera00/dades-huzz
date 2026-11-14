@@ -77,9 +77,10 @@ def _omega(rawtree: RawTree) -> Recommend:
     )
 
 
-def _lauri(rawtree: RawTree, name: str) -> Recommend:
+def _lauri(rawtree: RawTree, name: str, day: bool = False) -> Recommend:
     """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
-    ranking's products with each shopper's profile, and never showing what they bought."""
+    ranking's products with each shopper's profile, and never showing what they bought.
+    With `day`, Lauri Colossus: the shopper's day so far in `State` counts too."""
     weights = load_lauri_weights(rawtree, name)
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     ranking = LiveCategoryRanking(rawtree).start()
@@ -95,6 +96,7 @@ def _lauri(rawtree: RawTree, name: str) -> Recommend:
         ),
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
+        day=day,
     )
 
 
@@ -139,6 +141,9 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         rawtree, viewed_first=3
     ),
     "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
+    "lauri-colossus-feedback": lambda rawtree: _lauri(
+        rawtree, "lauri-colossus-feedback", day=True
+    ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
