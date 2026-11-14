@@ -100,3 +100,102 @@ def test_slate_ips_credits_purchases_where_our_slot_matches_the_logged_one():
     assert result.matches == 3
     assert result.matched_purchases == 1
     assert slate_ips(answers, logged, cap=100).ips == pytest.approx(12.5)
+
+
+def test_slate_ips_by_request_gives_each_request_its_share_of_the_total():
+    from dades_huzz.evaluation import slate_ips, slate_ips_by_request
+
+    logged = [
+        {"shown": ["a", "b"], "propensity": [0.5, 0.04], "purchased": "b"},
+        {"shown": ["c", "d"], "propensity": [0.25, 0.1], "purchased": "c"},
+    ]
+    answers = [["a", "b"], ["x", "d"]]
+    per_request = slate_ips_by_request(answers, logged, cap=20)
+    assert per_request == [20.0, 0.0]
+    assert sum(per_request) / 2 == slate_ips(answers, logged, cap=20).ips
+
+
+def test_a_logged_propensity_of_zero_counts_as_the_cap_instead_of_crashing():
+    from dades_huzz.evaluation import slate_ips_by_request
+
+    logged = [{"shown": ["a"], "propensity": [0.0], "purchased": "a"}]
+    assert slate_ips_by_request([["a"]], logged, cap=50) == [50.0]
+    # slot 1 has no cap: a zero propensity tells us nothing, so the row is skipped
+    zero_first = [{"shown": ["a"], "propensity": [0.0], "clicked": "a"}]
+    assert slot1_ips(["a"], zero_first).matches == 0
+
+
+def test_an_empty_answer_scores_nothing_instead_of_crashing():
+    from dades_huzz.data import State
+    from dades_huzz.evaluation import evaluate
+
+    state = State(
+        available=frozenset(), price={}, new_products=frozenset(), fallback=()
+    )
+    logged = {"shown": ["a"], "propensity": [0.5], "clicked": "a", "purchased": "a"}
+    case = {"request": {}, "bought": {"a"}, "logged": logged}
+    report = evaluate(lambda request, state: [], [case], state)
+    assert report.slate.ips == 0.0
+    assert report.slot1.matches == 0
+
+
+def _cases(users):
+    return [{"request": {"user_id": user}, "logged": {}} for user in users]
+
+
+def test_paired_difference_of_a_policy_with_itself_is_exactly_zero():
+    from dades_huzz.evaluation import paired_difference
+
+    values = [0.0, 20.0, 0.0, 5.0]
+    result = paired_difference(values, values, _cases(["u1", "u1", "u2", "u3"]))
+    assert (result.diff, result.low, result.high) == (0.0, 0.0, 0.0)
+    assert result.ratio == result.ratio_low == result.ratio_high == 1.0
+
+
+def test_paired_difference_resamples_whole_shoppers_not_single_requests():
+    from dades_huzz.evaluation import paired_difference
+
+    # one shopper made all four requests: every redrawn week is that same shopper, so the
+    # interval collapses to the point estimate; resampled by request it would spread out
+    baseline = [0.0, 0.0, 0.0, 4.0]
+    challenger = [8.0, 0.0, 0.0, 0.0]
+    result = paired_difference(baseline, challenger, _cases(["u1"] * 4))
+    assert result.diff == pytest.approx(1.0)
+    assert result.low == pytest.approx(1.0)
+    assert result.high == pytest.approx(1.0)
+    assert result.ratio == pytest.approx(2.0)
+
+
+def test_paired_difference_interval_holds_the_estimate_and_repeats_with_the_seed():
+    from dades_huzz.evaluation import paired_difference
+
+    baseline = [0.0, 2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 3.0]
+    challenger = [5.0, 2.0, 0.0, 4.0, 0.0, 0.0, 6.0, 0.0]
+    # requests without a user_id are their own shopper
+    cases = _cases(["u1", "u1", "u2", "u3", "u3", "u4", None, None])
+    first = paired_difference(baseline, challenger, cases, draws=500, seed=3)
+    again = paired_difference(baseline, challenger, cases, draws=500, seed=3)
+    assert first == again
+    assert first.diff == pytest.approx(11 / 8)
+    assert first.low < first.diff < first.high
+    assert first.ratio_low < first.ratio < first.ratio_high
+
+
+def test_paired_difference_without_requests_is_zero_instead_of_crashing():
+    from dades_huzz.evaluation import paired_difference
+
+    assert paired_difference([], [], []).diff == 0.0
+
+
+def test_paired_difference_does_not_depend_on_the_order_of_the_requests():
+    from dades_huzz.evaluation import paired_difference
+
+    baseline = [0.0, 2.0, 0.0, 0.0, 1.0, 0.0]
+    challenger = [5.0, 2.0, 0.0, 4.0, 0.0, 3.0]
+    users = ["u1", "u1", "u2", "u3", "u3", "u4"]
+    forward = paired_difference(baseline, challenger, _cases(users), draws=200)
+    backward = paired_difference(
+        baseline[::-1], challenger[::-1], _cases(users[::-1]), draws=200
+    )
+    assert forward.low == pytest.approx(backward.low)
+    assert forward.high == pytest.approx(backward.high)
