@@ -53,6 +53,7 @@ TITAN_FEATURES = tuple(
 COLOSSUS_FEATURES = TITAN_FEATURES + LAURI_DAY_FEATURES
 TITAN_PLUS_FEATURES = TITAN_FEATURES + LAURI_CART_FEATURES
 TITAN_ALS_FEATURES = TITAN_PLUS_FEATURES + LAURI_TASTE_FEATURES
+OMNI_FEATURES = COLOSSUS_FEATURES + LAURI_CART_FEATURES
 MIN_CART_PURCHASES = 40
 MIN_TASTE_GAIN = 35.0
 """What Colossus gained over Titan (-1044.1 vs -1081.8): the bar #62 set for a new source."""
@@ -84,11 +85,18 @@ def main() -> None:
         help="Titan ALS: Titan+'s features plus als_score (the shopper's taste, #62)",
     )
     parser.add_argument(
+        "--omni",
+        action="store_true",
+        help="Lauri Omni: Colossus' features (the day) plus history_carted",
+    )
+    parser.add_argument(
         "--save", action="store_true", help="refit on every row and store the weights"
     )
     args = parser.parse_args()
     if args.als:
         features = TITAN_ALS_FEATURES
+    elif args.omni:
+        features = OMNI_FEATURES
     elif args.history_carts:
         features = TITAN_PLUS_FEATURES
     else:
@@ -124,6 +132,12 @@ def main() -> None:
     fitted = fit_lauri(rows, train, target, args.l2, features)
     if args.als:
         name = "with taste (als)"
+    elif args.omni:
+        colossus = fit_lauri(rows, train, target, args.l2, COLOSSUS_FEATURES)
+        colossus_ll = report(
+            "colossus refitted", *lauri_scores(colossus, rows), rows, test
+        )
+        name = "omni"
     elif args.history_carts:
         name = "history carts"
     else:
@@ -151,6 +165,11 @@ def main() -> None:
             f"rule: held-out log-likelihood {fitted_ll:.1f} against the refitted Titan+'s {plus_ll['all']:.1f}"
             f" (gain {gain:+.1f}, needs {MIN_TASTE_GAIN:+.0f}); new shoppers {fitted_lls['new']:.1f} vs"
             f" {plus_ll['new']:.1f}; returning weight on als_score {weight:+.3f}: {'PASSES' if passes else 'FAILS'}"
+        )
+    elif args.omni:
+        verdict = "PASSES" if fitted_ll >= colossus_ll else "FAILS"
+        print(
+            f"rule: held-out log-likelihood {fitted_ll:.1f} against the refitted Colossus' {colossus_ll:.1f}: {verdict}"
         )
     elif args.history_carts:
         column = LAURI_FEATURES.index("history_carted")

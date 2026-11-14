@@ -79,7 +79,7 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "Titan retrained on more carousels, plus the shopper's day: today's categories, cart and views.",
     ),
     "lauri-titan-plus": VersionStyle(
-        "#b5179e",
+        "#e85d04",
         "Titan plus what the shopper carted in the history and never bought, as a candidate and a weight.",
     ),
     "lauri-titan-pool100": VersionStyle(
@@ -101,6 +101,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
     "lauri-titan-als": VersionStyle(
         "#9c2f2f",
         "Titan max plus each returning shopper's taste from the history (ALS): new candidates and a weight.",
+    ),
+    "lauri-omni": VersionStyle(
+        "#7209b7",
+        "Marcel's combined model: Titan max on weights that also read the shopper's day (Colossus + history carts).",
     ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""

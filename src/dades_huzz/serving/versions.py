@@ -150,19 +150,22 @@ def _cold_answer(rawtree: RawTree) -> Recommend:
     )
 
 
-def _titan_max(rawtree: RawTree, taste: bool = False) -> Recommend:
+def _titan_max(
+    rawtree: RawTree,
+    name: str = "lauri-titan-plus",
+    day: bool = False,
+    taste: bool = False,
+) -> Recommend:
     """Lauri Titan max: tournament 4's pieces together. Titan+ (history carts) reaching 100 deep into each
     category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests.
-    With `taste`, Lauri Titan ALS: the same, with the weights that also score the shopper's taste (#62)."""
-    titan_plus_100 = _lauri(
-        rawtree,
-        "lauri-titan-als" if taste else "lauri-titan-plus",
-        history_carts=True,
-        per_category=100,
-        taste=taste,
+    With `taste`, Lauri Titan ALS: the same, with the weights that also score the shopper's taste (#62).
+    With `day` and the weights of `lauri-omni`, Lauri Omni: the same pieces on a model that also reads the
+    shopper's day (Colossus' features plus history carts), Marcel's combined model (#7)."""
+    lauri_100 = _lauri(
+        rawtree, name, day=day, history_carts=True, per_category=100, taste=taste
     )
     hot = hot_first(
-        titan_plus_100,
+        lauri_100,
         live_category_signals(rawtree).ranked_by_category,
         bought=shopper_purchases(
             rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
@@ -234,7 +237,10 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         ),
     ),
     "lauri-titan-max": lambda rawtree: _titan_max(rawtree),
-    "lauri-titan-als": lambda rawtree: _titan_max(rawtree, taste=True),
+    "lauri-titan-als": lambda rawtree: _titan_max(
+        rawtree, "lauri-titan-als", taste=True
+    ),
+    "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 

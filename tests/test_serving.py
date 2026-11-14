@@ -351,3 +351,10 @@ def test_brands_view_counts_and_region_sales_reach_the_state():
         "Madrid": {"p_tv": 5},
         "Galicia": {"p_tv": 1},
     }
+
+
+def test_lauri_omni_is_a_live_version():
+    """Marcel's combined model (#7) can be put in a split by name."""
+    from dades_huzz.serving.versions import VERSIONS
+
+    assert "lauri-omni" in VERSIONS
