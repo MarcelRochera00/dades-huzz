@@ -41,6 +41,35 @@ ORDER BY n DESC, product_id DESC"""
 """The all-time best sellers as they stood at `until`: the baseline ranking without looking ahead."""
 
 
+SHOPPER_PROFILES = """
+SELECT e.user_id AS user_id, c.category AS category,
+       sum(multiIf(e.event_type = 'purchase', 5, e.event_type = 'add_to_cart', 2, 1)) AS weight
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id, event_type::String AS event_type
+    FROM shop.history_events
+    WHERE ts::DateTime64(3) < '{until}'
+) AS e
+INNER JOIN ({catalog}) AS c ON e.product_id = c.product_id
+GROUP BY user_id, category"""
+"""Each shopper's activity per category before `until`: a purchase counts 5, an add-to-cart 2, a view 1."""
+
+
+SHOPPER_PURCHASES = """
+SELECT user_id, groupUniqArray(product_id) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.history_events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
+GROUP BY user_id"""
+"""Every product each shopper bought before `until`: in the history, a snapshot from before the event, and live
+in shop.events, which keeps growing through Sunday (organisers, Sat 17:30)."""
+
+
 @dataclass(frozen=True)
 class CategorySignals:
     """What Tati Destroyer needs: each product's category and each category's best sellers."""
@@ -129,3 +158,28 @@ def best_sellers_until(rawtree: RawTree, until: str) -> list[str]:
         row["product_id"]
         for row in rawtree.query(OVERALL_RANKING.format(until=until), timeout=60)
     ]
+
+
+def shopper_profiles(rawtree: RawTree, until: str) -> dict[str, dict[str, float]]:
+    """Tati Apocalypse's signal: each shopper's share of their history per category, from events before
+    `until` (UTC, 'YYYY-MM-DD HH:MM:SS'). About 60,000 shoppers x 10 categories, in about 3 s."""
+    weights: dict[str, dict[str, float]] = {}
+    for row in rawtree.query(
+        SHOPPER_PROFILES.format(until=until, catalog=CATALOG_CATEGORY), timeout=120
+    ):
+        weights.setdefault(row["user_id"], {})[row["category"]] = float(row["weight"])
+    return {
+        user: {
+            category: weight / sum(categories.values())
+            for category, weight in categories.items()
+        }
+        for user, categories in weights.items()
+    }
+
+
+def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]:
+    """What each shopper already bought before `until`: the products not to show them again."""
+    return {
+        row["user_id"]: frozenset(row["products"])
+        for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
+    }

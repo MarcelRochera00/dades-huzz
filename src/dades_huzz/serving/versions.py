@@ -22,9 +22,24 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
-from dades_huzz.features import category_signals
+from dades_huzz.features import category_signals, shopper_profiles, shopper_purchases
 from dades_huzz.model import best_sellers, category_best_sellers
 from dades_huzz.serving.loop import Recommend
+
+
+def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
+    """Tati Apocalypse: Terminator plus each returning shopper's favourite categories from their history,
+    never showing what they already bought.
+    With `viewed_first=3`, Tati Armageddon: Ultimatum's viewed products on top of Apocalypse."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    return category_best_sellers(
+        **vars(category_signals(rawtree, until=until)),
+        keep_viewed=True,
+        viewed_first=viewed_first,
+        profiles=shopper_profiles(rawtree, until=until),
+        bought=shopper_purchases(rawtree, until=until),
+    )
+
 
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-0-bestsellers": lambda rawtree: best_sellers,
@@ -45,6 +60,10 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         ),
         keep_viewed=True,
         viewed_first=3,
+    ),
+    "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
+    "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
+        rawtree, viewed_first=3
     ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
