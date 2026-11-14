@@ -133,6 +133,19 @@ uv run --with "streamlit>=1.67,<2" streamlit run app/dashboard.py --server.addre
 Choose **Team** to monitor practice and serving, or **Jury** to present one version's confirmed
 sales. The app reads RawTree and the public competition leaderboard.
 
+### Private online dashboard
+
+A GitHub repository admin can connect [Streamlit Community Cloud](https://share.streamlit.io/)
+to the private repository and deploy `main` with `app/dashboard.py` as the
+entrypoint. Select Python 3.12. Community Cloud installs the app dependencies
+from `app/requirements.txt`.
+
+Keep the app private. To load results, the host needs `TEAM_ID` and an
+authorized server-side `RAWTREE_API_KEY` as top-level secrets. Confirm with
+the team which credential can be used for hosting. The local team key stays
+in its git-ignored `.env`. After launch, open **Jury** and check that results
+show a feedback timestamp.
+
 ## Layout
 
 | Path | What |
