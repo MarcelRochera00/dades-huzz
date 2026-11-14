@@ -14,6 +14,7 @@ from dades_huzz.features import (
     LauriDay,
     LauriSignals,
     LauriTrainingRows,
+    ShopperTaste,
     lauri_features,
 )
 from dades_huzz.serving.loop import ANSWER_SIZE, Recommend
@@ -770,6 +771,7 @@ def lauri(
     day: bool = False,
     carts: Mapping[str, Sequence[str]] | None = None,
     per_category: int = LAURI_PER_CATEGORY,
+    taste: ShopperTaste | None = None,
 ) -> Recommend:
     """Lauri Titan: scores every candidate with weights learned from our own carousels and shows the ten
     most likely to be bought.
@@ -786,6 +788,9 @@ def lauri(
 
     With `carts` (Lauri Titan+) what each shopper carted in the history and never bought joins the candidates
     and is scored as `history_carted`. `per_category` is how deep each category's ranking reaches.
+
+    With `taste` (Lauri Titan ALS) a returning shopper's best-liked products from the history join the
+    candidates, and every candidate is scored by how much the shopper's taste likes it (`als_score`).
     """
     by_segment = {
         segment: _feature_weights(weights[segment]) for segment in LAURI_SEGMENTS
@@ -834,6 +839,8 @@ def lauri(
             ]
         carted = (carts or {}).get(user, ())
         pool.update(dict.fromkeys(carted))
+        if taste is not None:
+            pool.update(dict.fromkeys(taste.top(user, LAURI_PER_LIST, skip=owned)))
         for name in dict.fromkeys(categories):
             pool.update(dict.fromkeys(ranked_by_category.get(name, ())[:per_category]))
         if viewed and (last := state.subcategory.get(viewed[-1])) is not None:
@@ -857,7 +864,13 @@ def lauri(
         segment = "new" if request.get("is_new_user") else "returning"
         scores = (
             lauri_features(
-                candidates, viewed, profile, signals, today, frozenset(carted)
+                candidates,
+                viewed,
+                profile,
+                signals,
+                today,
+                frozenset(carted),
+                taste.scores(user, candidates) if taste is not None else None,
             )
             @ by_segment[segment]
         )
