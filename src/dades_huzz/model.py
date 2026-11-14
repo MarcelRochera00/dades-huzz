@@ -64,6 +64,10 @@ BLANK_CATEGORY_SHARE = {
 """Per device, each category's share (%) of new shoppers' purchases in `shop.events` on Saturday (24,320
 purchases); 60 days of `shop.history_events` give the same order. A blank profile splits the slots the
 leading category leaves by these shares."""
+BLANK_DAY_CATEGORIES = 3
+"""A cold shopper with nothing in `recent_views` but a day in `shop.events` (`State.shopper_categories`) gets
+the blocks of their day's top categories instead of the device's: on Saturday the top 3 held 72 % of blank
+new shoppers' purchases within the hour, the device split far less (#5, taken over from lane C)."""
 ANDROID_DEAREST_LEFT_OUT = 0.2
 """Android buys cheapest (median 18.99 EUR vs 23.99 ios, 24.99 web): a blank android profile never sees the
 dearest 20 % of a category."""
@@ -245,8 +249,14 @@ def cold_start_answer(
     What the shopper carted today and did not buy (`state.shopper_carted`) always shows: in the block of
     its category, or on top when they viewed nothing of that category.
 
-    A blank profile (no view of a known category) on a known device gets `blank_profile_answer` instead,
-    with the `leader` of the last 15 minutes' sales (`best_selling_category`).
+    A shopper with no view of a known category but a day in `shop.events` is split by their day instead:
+    the BLANK_DAY_CATEGORIES categories they viewed most today, by their share of the day's views, and each
+    block also lists what they viewed today (`state.shopper_viewed`). With no day either, a blank profile on
+    a known device gets `blank_profile_answer`, with the `leader` of the last 15 minutes' sales
+    (`best_selling_category`).
+
+    Inside a block, the products of a subcategory trending right now (`state.hot_subcategories`) come
+    before the rest of the category's trend and best sellers.
 
     Each category the shopper viewed gets a share of the ANSWER_SIZE slots in proportion to its views
     (largest remainder; a tie goes to the category viewed last). Blocks follow by share, ties again to the
@@ -262,7 +272,9 @@ def cold_start_answer(
 
     def add(product_id: str) -> None:
         if (
-            product_id in state.available
+            len(answer)
+            < ANSWER_SIZE  # a long cart fills the answer, it never grows past it
+            and product_id in state.available
             and product_id not in bought
             and product_id not in answer
         ):
@@ -274,6 +286,14 @@ def cold_start_answer(
         if (category := category_of(product_id)) is not None:
             views[category] += 1
             last_view[category] = (position, product_id)
+    day_viewed: Sequence[str] = ()
+    if not views:
+        day = Counter(state.shopper_categories.get(user_id, {}))
+        for rank, (c, n) in enumerate(day.most_common(BLANK_DAY_CATEGORIES)):
+            views[c] = n
+            last_view[c] = (-rank, "")  # ties go to the day's leading category
+        if views:
+            day_viewed = state.shopper_viewed.get(user_id, ())
     carted: dict[str, list[str]] = defaultdict(list)
     for product_id in sorted(
         state.shopper_carted.get(user_id, ()),
@@ -310,19 +330,29 @@ def cold_start_answer(
         )
         for c in by_remainder[:leftover]:
             quota[c] += 1
+        seen_in: dict[str, list[str]] = {c: [] for c in views}
+        for product_id in (*reversed(viewed), *day_viewed):
+            if (c := category_of(product_id)) in seen_in:
+                seen_in[c].append(product_id)
         in_category: dict[str, list[str]] = {c: [] for c in views}
-        for product_id in reversed(viewed):
-            if (c := category_of(product_id)) in in_category:
-                in_category[c].append(product_id)
         for product_id in trending:
             if (c := category_of(product_id)) in in_category:
                 in_category[c].append(product_id)
+        hot = state.hot_subcategories
         for c in sorted(views, key=lambda c: (views[c], last_view[c][0]), reverse=True):
             block_start = len(answer)
             for product_id in carted.get(c, ()):
                 add(product_id)
             block_end = max(len(answer), block_start + quota[c])
-            for product_id in (*in_category[c], *(ranked_by_category or {}).get(c, ())):
+            ranked = (*in_category[c], *(ranked_by_category or {}).get(c, ()))
+            if (
+                hot
+            ):  # a trending subcategory's products first; the rest keep their order
+                ranked = (
+                    *(p for p in ranked if state.subcategory.get(p) in hot),
+                    *(p for p in ranked if state.subcategory.get(p) not in hot),
+                )
+            for product_id in (*seen_in[c], *ranked):
                 if len(answer) >= min(block_end, ANSWER_SIZE):
                     break
                 add(product_id)

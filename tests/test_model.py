@@ -955,3 +955,69 @@ def test_hot_first_puts_the_hottest_subcategorys_live_best_sellers_in_slots_2_an
     assert len(answer) == 10 == len(set(answer))
     calm = replace(state, hot_subcategories={})
     assert recommend({"user_id": "u", "recent_views": []}, calm) == base(None, None)
+
+
+def _with(state, **fields):
+    return State(**{**vars(state), **fields})
+
+
+def test_a_blank_shopper_with_a_day_gets_their_days_categories_not_the_devices():
+    # nothing in recent_views, but today they viewed toys 6 times and books twice: toys take 8 slots,
+    # books 2, instead of what ios buys (books first). Took over from lane C (#60); measured in #5:
+    # the day's top 3 categories hold 72 % of blank new shoppers' purchases
+    state = _with(
+        _blank_profile_state(),
+        shopper_categories={"u1": {"Toys & Baby": 6, "Books & Media": 2}},
+    )
+    answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
+    assert answer[:6] == ["t5", "t4", "t3", "t2", "b5", "b4"]
+    assert len(set(answer)) == 10
+
+
+def test_a_blank_shopper_sees_their_cart_then_their_day_views_first_in_each_block():
+    state = _with(
+        _blank_profile_state(),
+        shopper_categories={"u1": {"Toys & Baby": 6, "Books & Media": 2}},
+        shopper_carted={"u1": frozenset({"t1"})},
+        shopper_viewed={"u1": ("t3", "b2")},
+    )
+    answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
+    assert answer[:3] == ["t1", "t3", "t5"]
+    assert "b2" in answer
+
+
+def test_a_hot_subcategory_leads_its_category_block():
+    # t2 belongs to a subcategory selling 4x its day share right now (State.hot_subcategories, #64)
+    state = _with(
+        _blank_profile_state(),
+        shopper_categories={"u1": {"Toys & Baby": 6}},
+        subcategory={"t2": "Plushies"},
+        hot_subcategories={"Plushies": 4.0},
+    )
+    answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
+    assert answer[:3] == ["t2", "t5", "t4"]
+
+
+def test_a_blank_shopper_without_a_day_keeps_the_device_answer():
+    state = _with(
+        _blank_profile_state(), recent_purchases=_sold(t=7, b=3), shopper_categories={}
+    )
+    answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
+    assert answer[:5] == ["t5", "t4", "b5", "b4", "p_00"]
+
+
+def test_a_cold_answer_has_ten_products_however_many_the_shopper_carted():
+    # a shopper with 12 unbought carts: the cart goes first but the answer still has ANSWER_SIZE products
+    # (on main it grew to the whole cart, and the loop had to cut it; #60)
+    state = _with(
+        _blank_profile_state(),
+        shopper_categories={"u1": {"Toys & Baby": 6}},
+        shopper_carted={
+            "u1": frozenset(
+                {*(f"b{i}" for i in range(1, 6)), *(f"t{i}" for i in range(1, 6))}
+            )
+            | {"p_01", "p_02"}
+        },
+    )
+    answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
+    assert len(answer) == 10 == len(set(answer))
