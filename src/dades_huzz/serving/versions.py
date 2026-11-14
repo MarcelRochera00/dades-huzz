@@ -58,6 +58,23 @@ def _subcategory_first_live(rawtree: RawTree) -> Recommend:
     )
 
 
+def _omega(rawtree: RawTree) -> Recommend:
+    """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
+    (#38), and for a new shopper with views the subcategory viewed last first (#46)."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+        ),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-0-bestsellers": lambda rawtree: best_sellers,
     "tati-destroyer-category": lambda rawtree: category_best_sellers(
@@ -78,10 +95,22 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         keep_viewed=True,
         viewed_first=3,
     ),
+    "tati-ultimatum-cold": lambda rawtree: category_best_sellers(
+        **vars(
+            category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
+        ),
+        keep_viewed=True,
+        viewed_first=3,
+        cold_start=True,
+    ),
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
     "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
+    "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
+        **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
+    ),
+    "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
