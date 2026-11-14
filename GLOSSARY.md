@@ -71,7 +71,9 @@ _Avoid_: failover, leader election.
 
 **Tati**: our recommender as a product. Each model version that beats the live champion takes the next
 rank: Tati (`tati-0-bestsellers`, the baseline), Tati Destroyer, Tati Terminator, Tati Ultimatum; the
-model version is `tati-<rank>-<idea>`, e.g. `tati-destroyer-category`. _Avoid_: the bot, the model.
+model version is `tati-<rank>-<idea>`, e.g. `tati-destroyer-category`. A challenger carries the rank it
+is aiming for from the start; it holds that rank only once it beats the champion live. _Avoid_: the bot,
+the model.
 
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.

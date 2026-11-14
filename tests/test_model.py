@@ -76,3 +76,30 @@ def test_category_best_sellers_can_keep_viewed_products_where_they_rank():
     answer = recommend(request, state)
     assert answer[:4] == ["e_1", "v_last", "e_2", "p_00"]
     assert len(set(answer)) == 10
+
+
+def test_category_best_sellers_can_put_the_latest_viewed_products_first():
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Ultimatum: up to three viewed products on top, the latest first; an unavailable one is
+    # skipped, an older fourth stays where it ranks, and nothing is shown twice
+    recommend = category_best_sellers(
+        category_of={"v_4": "electronics"},
+        ranked_by_category={"electronics": ["e_1", "v_1", "v_3", "e_2"]},
+        keep_viewed=True,
+        viewed_first=3,
+    )
+    state = _state(extra={"e_1", "e_2", "v_1", "v_2", "v_3", "v_4"})
+    request = {
+        "recent_views": [
+            {"product_id": "v_1"},
+            {"product_id": "v_2"},
+            {"product_id": "v_gone"},
+            {"product_id": "v_3"},
+            {"product_id": "v_4"},
+        ]
+    }
+    answer = recommend(request, state)
+    assert answer[:6] == ["v_4", "v_3", "v_2", "e_1", "v_1", "e_2"]
+    assert len(answer) == 10
+    assert len(set(answer)) == 10
