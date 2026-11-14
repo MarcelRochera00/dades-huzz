@@ -23,6 +23,7 @@ from dades_huzz.data import (
     recently_changed,
 )
 from dades_huzz.serving.handover import Handover, now_ms
+from dades_huzz.serving.watchdog import mark_alive
 
 Recommend = Callable[[Record, State], list[str]]
 """`recommend(request, state) -> list[str]`, the shared signature in docs/contracts.md."""
@@ -67,13 +68,17 @@ def repair(
     return answer
 
 
-def until_ok[T](load: Callable[[], T], what: str) -> T:
-    """Retry a start-up load until it works: a network blip at start must not stop the loop for good."""
+def until_ok[T](
+    load: Callable[[], T], what: str, on_retry: Callable[[], None] = lambda: None
+) -> T:
+    """Retry a start-up load until it works: a network blip at start must not stop the loop for good.
+    `on_retry` runs on every retry (the loop marks itself alive, so the watchdog knows it is only waiting)."""
     while True:
         try:
             return load()
         except Exception as e:  # noqa: BLE001  retried, never fatal
             print(f"loading {what} failed, retrying in 2 s: {e}", flush=True)
+            on_retry()
             time.sleep(2)
 
 
@@ -84,13 +89,17 @@ class LiveState:
     changed in the last RECENT_CHANGE_MS.
     """
 
-    def __init__(self, rawtree: RawTree) -> None:
+    def __init__(
+        self, rawtree: RawTree, on_retry: Callable[[], None] = lambda: None
+    ) -> None:
         self.rawtree = rawtree
-        self.catalog = until_ok(rawtree.catalog, "catalogue")
-        self.best_sellers = until_ok(rawtree.best_sellers, "best sellers")
+        self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
+        self.best_sellers = until_ok(rawtree.best_sellers, "best sellers", on_retry)
         self.updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
         self.updates.add(
-            until_ok(lambda: rawtree.catalog_updates_since(0), "catalogue updates")
+            until_ok(
+                lambda: rawtree.catalog_updates_since(0), "catalogue updates", on_retry
+            )
         )
         self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
@@ -175,12 +184,20 @@ def serve(
     model_version: str,
     log_path: Path,
     handover: bool = True,
+    alive_path: Path | None = None,
 ) -> None:
     """Answer requests forever with `recommend`, tagging every answer with `model_version`.
 
-    With `handover`, the loop answers only while it is the team's active loop (see handover.py).
+    With `handover`, the loop answers only while it is the team's active loop (see handover.py). With
+    `alive_path`, every round touches that file so the watchdog can tell the loop is not hung (watchdog.py).
     """
-    live = LiveState(rawtree)
+
+    def alive() -> None:
+        if alive_path:
+            mark_alive(alive_path)
+
+    alive()
+    live = LiveState(rawtree, on_retry=alive)
     cursor = RequestCursor(MAX_AGE_MS)
     turn = Handover(rawtree, enabled=handover)
     was_active = not handover
@@ -190,6 +207,7 @@ def serve(
     with log_path.open("a") as log:
         while True:
             started = time.time()
+            alive()
             try:
                 if not turn.active:
                     was_active = False
