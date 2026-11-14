@@ -79,6 +79,14 @@ def main() -> None:
             keep_viewed=True,
             profiles=profiles,
         ),
+        # live only, like Ultimatum: it moves viewed products the old carousel placed elsewhere
+        "tati-armageddon-viewed-profile": category_best_sellers(
+            signals.category_of,
+            signals.ranked_by_category,
+            keep_viewed=True,
+            viewed_first=3,
+            profiles=profiles,
+        ),
     }
     reports = {
         name: evaluate(recommend, cases, state) for name, recommend in policies.items()

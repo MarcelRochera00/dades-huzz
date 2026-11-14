@@ -159,3 +159,21 @@ def test_a_shopper_without_a_profile_gets_exactly_terminator():
         {"user_id": "u_new", "recent_views": []},
     ):
         assert apocalypse(request, state) == terminator(request, state)
+
+
+def test_armageddon_puts_viewed_products_on_top_of_the_profile_blend():
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Armageddon = Ultimatum + Apocalypse: live, a viewed product in slots 1-3 sold 2.2 % against
+    # 0.09 % for the rest, and a favourite category sold as well as the one viewed last
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={"electronics": ["e_1", "v_last", "e_2"], "toys": ["t_1"]},
+        keep_viewed=True,
+        viewed_first=3,
+        profiles={"u_1": {"toys": 1.0}},
+    )
+    state = _state(extra={"e_1", "e_2", "t_1", "v_last"})
+    request = {"user_id": "u_1", "recent_views": [{"product_id": "v_last"}]}
+    # after v_last: e_1 costs 1, t_1 costs 1/0.5 = 2, e_2 costs 3 (v_last, rank 2, is already on top)
+    assert recommend(request, state)[:5] == ["v_last", "e_1", "t_1", "e_2", "p_00"]
