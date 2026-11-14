@@ -44,7 +44,8 @@ Read `docs/challenge/` (what the company asked for), `docs/contracts.md` (what t
 
 Each lane has one issue on GitHub (label `area:live`, `area:model`, `area:learning` or
 `area:decisions`), linked from the index issue (label `wayfinder:map`). Lanes and owners are in
-`docs/contracts.md`.
+`docs/contracts.md`. In chat, "Gabo" or "G" means Gabriel (`ProGabo`) and "MR" means Marcel
+(`MarcelRochera00`).
 
 - Work on your lane issue and tick its checklist as slices reach `main`.
 - When you find a problem or an idea outside the current task, do not fix it in this branch. Open an
@@ -64,7 +65,7 @@ row here. If nothing fits, ask the user instead of inventing a place.
 | Loading and cleaning data | `src/dades_huzz/data.py` | |
 | Feature building | `src/dades_huzz/features.py` | |
 | Training and prediction | `src/dades_huzz/model.py` | |
-| Live serving loop: pull requests, keep the state fresh, push answers, handover, watchdog, serving report | `src/dades_huzz/serving/` | one module per job: `loop.py`, `handover.py`, `watchdog.py`, `report.py` |
+| Live serving loop: pull requests, keep the state fresh, push answers, handover, watchdog, serving report | `src/dades_huzz/serving/` | one module per job: `loop.py`, `handover.py`, `watchdog.py`, `report.py`, `split.py`; the live versions are listed in `versions.py`, where lane B adds a line per version |
 | Metric, validation, submission check | `src/dades_huzz/evaluation.py` | |
 | Tests | `tests/test_<module>.py` | mirrors the module it tests |
 | Commands a person runs (train, predict, submit) | `scripts/<verb>_<thing>.py` | thin: parse args, call `src/` |

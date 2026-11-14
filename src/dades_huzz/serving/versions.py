@@ -1,36 +1,44 @@
-"""The version split: which recommenders answer live, and which requests each one gets.
+"""Every version that can answer live, and how a split of them is loaded.
 
-Every request goes to one version, chosen from a fingerprint of its `request_id`, so the same request gets
-the same version on any laptop and after any restart. The answer carries the version that produced it as
-`model_version`, so the serving report compares versions on the same stream, side by side.
-
-The first version listed is the champion (GLOSSARY.md): it answers in the loop itself. Every other version is
-a challenger, with a time limit per request. A challenger that misses it or raises gives way to the champion
-for that shopper. A challenger slow on average is taken out for OUT_FOR_MS, also across restarts and
-laptops. One that cannot load is left out, and the champion answers its share.
-
-To add a version, add one line to VERSIONS (a lane A file: open a PR, lane A confirms). Choose which run and
-their shares with `run_recommender.py --versions name=share,...`, champion first.
+To add a version, add one line to VERSIONS: a function that loads what the version needs and returns its
+`recommend(request, state)`. A PR that adds one shows `scripts/check_versions.py` output for it (issue #5).
+Choose which versions run and their shares with `run_recommender.py --versions name=share,...`, champion
+first. How requests are shared and timed is in `split.py`.
 """
 
-import hashlib
 import math
 import threading
 import time
-import tracemalloc
-from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from dades_huzz.data import RawTree, Record, State
+import requests
+
+from dades_huzz.data import RawTree
 from dades_huzz.features import (
+    LiveCategoryRanking,
     category_signals,
     live_category_signals,
+    median_log_prices,
+    shopper_carts,
     shopper_profiles,
     shopper_purchases,
+    shopper_taste,
 )
-from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.model import (
+    LAURI_PER_CATEGORY,
+    best_sellers,
+    cart_first,
+    category_best_sellers,
+    cold_first,
+    hot_first,
+    lauri,
+    load_lauri_weights,
+    subcategory_first,
+)
+from dades_huzz.serving.handover import now_ms
 from dades_huzz.serving.loop import Recommend
+from dades_huzz.serving.split import Split
 
 
 def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
@@ -45,6 +53,125 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
     )
+
+
+def _cart_profile(rawtree: RawTree) -> Recommend:
+    """Tati Cart: Apocalypse, with up to three products each returning shopper carted in the history and never
+    bought on top (docs/experiments.md row 46)."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = category_signals(rawtree, until=until)
+    return cart_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+        ),
+        shopper_carts(rawtree, until=until),
+        signals.category_of,
+    )
+
+
+def _subcategory_first_live(rawtree: RawTree) -> Recommend:
+    """Terminator with the live category ranking (#38), and for a new shopper with views the two best sellers
+    of the subcategory they viewed last on top."""
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(**vars(signals), keep_viewed=True),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
+def _omega(rawtree: RawTree, day_weight: float = 0.0) -> Recommend:
+    """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
+    (#38), and for a new shopper with views the subcategory viewed last first (#46).
+    With `day_weight`, Tati Omega+: the categories viewed today (#54) count too, also for new shoppers."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+            day_weight=day_weight,
+        ),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
+def _lauri(
+    rawtree: RawTree,
+    name: str,
+    day: bool = False,
+    history_carts: bool = False,
+    per_category: int = LAURI_PER_CATEGORY,
+    taste: bool = False,
+) -> Recommend:
+    """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
+    ranking's products with each shopper's profile, and never showing what they bought.
+    With `day`, Lauri Colossus: the shopper's day so far in `State` counts too.
+    With `history_carts`, Lauri Titan+: what each shopper carted in the history and never bought joins.
+    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100).
+    With `taste`, Lauri Titan ALS: each returning shopper's taste from the history (#62) adds candidates and a weight."""
+    weights = load_lauri_weights(rawtree, name)
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    ranking = LiveCategoryRanking(rawtree).start()
+    catalog = rawtree.catalog()
+    return lauri(
+        weights,
+        ranked_by_category=ranking.signals().ranked_by_category,
+        history_sales=ranking.history_sales,
+        live_sales=ranking.live_sales_now(),
+        median_log_price=median_log_prices(
+            {row["product_id"]: row["category"] for row in catalog},
+            {row["product_id"]: float(row["price_eur"]) for row in catalog},
+        ),
+        profiles=shopper_profiles(rawtree, until=until),
+        bought=shopper_purchases(rawtree, until=until),
+        day=day,
+        carts=shopper_carts(rawtree, until=until) if history_carts else None,
+        per_category=per_category,
+        taste=shopper_taste(rawtree) if taste else None,
+    )
+
+
+def _cold_answer(rawtree: RawTree) -> Recommend:
+    """#60's cold-start rule (with #69) on the live ranking, never showing what the shopper bought."""
+    return category_best_sellers(
+        **vars(live_category_signals(rawtree)),
+        keep_viewed=True,
+        cold_start=True,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    )
+
+
+def _titan_max(
+    rawtree: RawTree,
+    name: str = "lauri-titan-plus",
+    day: bool = False,
+    taste: bool = False,
+) -> Recommend:
+    """Lauri Titan max: tournament 4's pieces together. Titan+ (history carts) reaching 100 deep into each
+    category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests.
+    With `taste`, Lauri Titan ALS: the same, with the weights that also score the shopper's taste (#62).
+    With `day` and the weights of `lauri-omni`, Lauri Omni: the same pieces on a model that also reads the
+    shopper's day (Colossus' features plus history carts), Marcel's combined model (#7)."""
+    lauri_100 = _lauri(
+        rawtree, name, day=day, history_carts=True, per_category=100, taste=taste
+    )
+    hot = hot_first(
+        lauri_100,
+        live_category_signals(rawtree).ranked_by_category,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    )
+    return cold_first(hot, _cold_answer(rawtree))
 
 
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
@@ -78,22 +205,46 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
+    "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
+    "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
+        **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
+    ),
+    "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
+    "tati-omega-plus-day": lambda rawtree: _omega(rawtree, day_weight=3.0),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
     ),
+    "tati-cart-profile": lambda rawtree: _cart_profile(rawtree),
+    "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
+    "lauri-colossus-feedback": lambda rawtree: _lauri(
+        rawtree, "lauri-colossus-feedback", day=True
+    ),
+    "lauri-titan-plus": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-plus", history_carts=True
+    ),
+    "lauri-titan-pool100": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-feedback", per_category=100
+    ),
+    "lauri-titan-cold60": lambda rawtree: cold_first(
+        _lauri(rawtree, "lauri-titan-feedback"), _cold_answer(rawtree)
+    ),
+    "lauri-titan-plus-hot": lambda rawtree: hot_first(
+        _lauri(rawtree, "lauri-titan-plus", history_carts=True),
+        live_category_signals(rawtree).ranked_by_category,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    ),
+    "lauri-titan-max": lambda rawtree: _titan_max(rawtree),
+    "lauri-titan-als": lambda rawtree: _titan_max(
+        rawtree, "lauri-titan-als", taste=True
+    ),
+    "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
 DEFAULT_SPLIT = "tati-terminator-category-viewed=100"
-BUDGET_MS = 200.0
-"""docs/contracts.md: about 200 ms per request. A challenger gets this long per request."""
-WINDOW = 20
-"""A challenger whose last WINDOW requests average over budget is taken out."""
-OUT_FOR_MS = 30 * 60_000
-"""How long a take-out lasts; then the version gets another chance (the time limit caps what it costs)."""
-MAX_PENDING = 20
-"""A challenger with this many calls still running (hung) is not called again: it times out at once."""
 LOAD_ATTEMPTS = 3
 
 TAKE_OUTS = """
@@ -101,137 +252,6 @@ SELECT version::String AS version, max(until_ms::Int64) AS until_ms
 FROM {team}.scratch
 WHERE kind::String = 'version_out' AND until_ms::Int64 > {now_ms}
 GROUP BY version"""
-
-
-def wall_ms() -> int:
-    return int(time.time() * 1000)
-
-
-def parse_split(text: str) -> dict[str, int]:
-    """'a=50,b=50' -> {'a': 50, 'b': 50}. Shares are positive whole numbers; their total need not be 100."""
-    shares: dict[str, int] = {}
-    for part in text.split(","):
-        name, sep, share = part.partition("=")
-        name = name.strip()
-        if not sep or not name or not share.strip().isdigit() or int(share) <= 0:
-            raise ValueError(f"expected name=positive_share, got {part!r} in {text!r}")
-        if name in shares:
-            raise ValueError(f"{name!r} appears twice in {text!r}")
-        shares[name] = int(share)
-    return shares
-
-
-class Split:
-    """Assigns requests to versions by share, runs challengers under a time limit, and takes out a slow one."""
-
-    def __init__(
-        self,
-        recommenders: dict[str, Recommend],
-        shares: dict[str, int],
-        budget_ms: float = BUDGET_MS,
-        out_until_ms: dict[str, float] | None = None,
-        on_take_out: Callable[[str, int], None] = lambda name, until_ms: None,
-    ) -> None:
-        self.recommenders = recommenders
-        self.shares = shares
-        self.champion = next(iter(shares))
-        self.budget_ms = budget_ms
-        self.out_until_ms: dict[str, float] = dict(out_until_ms or {})
-        self.on_take_out = on_take_out
-        self._times: dict[str, deque[float]] = {
-            name: deque(maxlen=WINDOW) for name in shares
-        }
-        self._pending: dict[str, list[threading.Thread]] = {name: [] for name in shares}
-
-    def taken_out(self, now_ms: int | None = None) -> set[str]:
-        now = now_ms if now_ms is not None else wall_ms()
-        return {name for name, until in self.out_until_ms.items() if until > now}
-
-    def describe(self) -> str:
-        """The split as `--versions` takes it, champion first: 'a=50,b=50'."""
-        return ",".join(f"{name}={share}" for name, share in self.shares.items())
-
-    def version_for(self, request_id: str, now_ms: int | None = None) -> str:
-        """Deterministic: a sha256 fingerprint of the id, not Python's hash(), which changes per process."""
-        point = int.from_bytes(
-            hashlib.sha256(request_id.encode()).digest()[:8], "big"
-        ) % sum(self.shares.values())
-        for name, share in self.shares.items():
-            if point < share:
-                return self.champion if name in self.taken_out(now_ms) else name
-            point -= share
-        raise AssertionError("unreachable: point < total share")
-
-    def recommend(
-        self, request: Record, state: State
-    ) -> tuple[str, list[str], str | None]:
-        """(version that answered, its items, problem). A challenger that times out or raises gives way to the
-        champion, and the problem says so ('timeout:name', 'model_error:name')."""
-        version = self.version_for(request["request_id"])
-        if version == self.champion:
-            started = time.perf_counter()
-            items = self.recommenders[version](request, state)
-            self.record(version, (time.perf_counter() - started) * 1000)
-            return version, items, None
-        items, problem = self._call_with_limit(version, request, state)
-        if problem:
-            return (
-                self.champion,
-                self.recommenders[self.champion](request, state),
-                f"{problem}:{version}",
-            )
-        return version, items, None
-
-    def _call_with_limit(
-        self, version: str, request: Record, state: State
-    ) -> tuple[list[str], str | None]:
-        pending = self._pending[version] = [
-            t for t in self._pending[version] if t.is_alive()
-        ]
-        if len(pending) >= MAX_PENDING:
-            self.record(version, self.budget_ms * 2)
-            return [], "timeout"
-        box: dict[str, object] = {}
-
-        def run() -> None:
-            try:
-                box["items"] = self.recommenders[version](request, state)
-            except Exception as e:  # noqa: BLE001  reported to the caller as model_error
-                box["error"] = e
-
-        started = time.perf_counter()
-        thread = threading.Thread(
-            target=run, daemon=True
-        )  # daemon: a hung model never blocks exit
-        thread.start()
-        thread.join(self.budget_ms / 1000)
-        self.record(version, (time.perf_counter() - started) * 1000)
-        if thread.is_alive():
-            pending.append(thread)
-            return [], "timeout"
-        if "error" in box:
-            print(f"version {version} raised: {box['error']!r}", flush=True)
-            return [], "model_error"
-        return box["items"], None  # type: ignore[return-value]
-
-    def record(self, name: str, elapsed_ms: float, now_ms: int | None = None) -> None:
-        """Note how long `name` took for one request; take it out if its recent average is over budget."""
-        now = now_ms if now_ms is not None else wall_ms()
-        times = self._times[name]
-        times.append(elapsed_ms)
-        average = sum(times) / len(times)
-        if name == self.champion or len(times) < WINDOW or average <= self.budget_ms:
-            return
-        if name not in self.taken_out(now):
-            until = now + OUT_FOR_MS
-            self.out_until_ms[name] = until
-            times.clear()
-            print(
-                f"version {name} taken out for {OUT_FOR_MS // 60_000} min: {average:.0f} ms per request on average"
-                f" (budget {self.budget_ms:.0f}); the champion {self.champion} answers its share",
-                flush=True,
-            )
-            self.on_take_out(name, until)
 
 
 def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Split:
@@ -266,7 +286,7 @@ def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Spli
             out_until_ms[name] = math.inf
     try:
         for row in rawtree.query(
-            TAKE_OUTS.format(team=rawtree.team, now_ms=wall_ms()), timeout=5
+            TAKE_OUTS.format(team=rawtree.team, now_ms=now_ms()), timeout=5
         ):
             if row["version"] in shares and row["version"] != champion:
                 out_until_ms.setdefault(row["version"], row["until_ms"])
@@ -274,7 +294,16 @@ def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Spli
                     f"version {row['version']} still taken out from before, until {row['until_ms']}",
                     flush=True,
                 )
-    except Exception as e:  # noqa: BLE001  none recorded yet (the columns do not exist) or RawTree is slow
+    except (
+        requests.HTTPError
+    ) as e:  # no version_out row yet: RawTree has no `until_ms` column to read
+        print(
+            "no take-outs recorded yet"
+            if e.response is not None and e.response.status_code == 400
+            else f"could not read earlier take-outs: {str(e)[:120]}",
+            flush=True,
+        )
+    except Exception as e:  # noqa: BLE001  RawTree is slow or down: start without them
         print(f"could not read earlier take-outs: {str(e)[:120]}", flush=True)
 
     def remember(
@@ -284,7 +313,7 @@ def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Spli
             "kind": "version_out",
             "version": name,
             "until_ms": until_ms,
-            "ts_ms": wall_ms(),
+            "ts_ms": now_ms(),
         }
         threading.Thread(
             target=lambda: _try(lambda: rawtree.insert("scratch", [row])), daemon=True
@@ -298,53 +327,3 @@ def _try(action: Callable[[], object]) -> None:
         action()
     except Exception as e:  # noqa: BLE001  remembering a take-out is best effort
         print(f"could not record a take-out: {e}", flush=True)
-
-
-def measure_version(
-    load: Callable[[], Recommend],
-    requests: list[Record],
-    state: State,
-    reference: Recommend,
-) -> dict[str, float]:
-    """What a version costs before it goes live: load time and memory, then on `requests` how many answers
-    are invalid (not 10 distinct available products), how many differ from `reference`, and time per call.
-
-    Memory is what Python allocates while loading (tracemalloc), so it reads the same on every system."""
-    tracemalloc.start()
-    started = time.perf_counter()
-    recommend = load()
-    load_s = time.perf_counter() - started
-    load_mb = tracemalloc.get_traced_memory()[0] / 2**20
-    tracemalloc.stop()
-    times, invalid, differs = [], 0, 0
-    for request in requests:
-        started = time.perf_counter()
-        items = recommend(request, state)
-        times.append((time.perf_counter() - started) * 1000)
-        invalid += not (
-            len(items) == 10 == len(set(items)) and set(items) <= state.available
-        )
-        differs += items != reference(request, state)
-    times.sort()
-    n = max(len(times), 1)
-    return {
-        "load_s": load_s,
-        "load_mb": load_mb,
-        "requests": len(requests),
-        "invalid": invalid,
-        "differs_pct": 100 * differs / n,
-        "p50_ms": times[len(times) // 2] if times else 0.0,
-        "p99_ms": times[int(len(times) * 0.99)] if times else 0.0,
-        "max_ms": times[-1] if times else 0.0,
-    }
-
-
-def main_thread_wait_ms(seconds: float, step_s: float = 0.05) -> float:
-    """The longest extra wait of a 50 ms sleep in this thread over `seconds`: what background work started by
-    the loaded versions (refresh threads) would add to the answering loop."""
-    worst, end = 0.0, time.monotonic() + seconds
-    while time.monotonic() < end:
-        started = time.perf_counter()
-        time.sleep(step_s)
-        worst = max(worst, (time.perf_counter() - started - step_s) * 1000)
-    return worst

@@ -30,7 +30,9 @@ def decide_role(
 
     A loop that could not write its own heartbeat lately steps down: the others cannot see it is alive.
     One that could not read the heartbeats (`None`) keeps its role: it cannot know whether another is active.
-    Nobody else active and alive: become active. Several active: only the one that started first stays.
+    Nobody else active and alive: a standby becomes active only if no older standby is alive, so that two spares
+    never take over at the same moment; an active loop stays. Several active: only the one that started first
+    stays. Older means a smaller (started_ms, loop_id).
     """
     if now_ms - last_write_ms > SILENT_MS:
         return "standby"
@@ -43,15 +45,17 @@ def decide_role(
             or beat["ts_ms"] > latest[beat["loop_id"]]["ts_ms"]
         ):
             latest[beat["loop_id"]] = beat
-    others = [
+    alive = [
         beat
         for loop_id, beat in latest.items()
-        if loop_id != me
-        and beat["role"] == "active"
-        and now_ms - beat["ts_ms"] <= SILENT_MS
+        if loop_id != me and now_ms - beat["ts_ms"] <= SILENT_MS
     ]
+    others = [beat for beat in alive if beat["role"] == "active"]
     if not others:
-        return "active"
+        older_spare = any(
+            (beat["started_ms"], beat["loop_id"]) < (started_ms, me) for beat in alive
+        )
+        return "standby" if role == "standby" and older_spare else "active"
     if role == "standby":
         return "standby"
     oldest = min((beat["started_ms"], beat["loop_id"]) for beat in others)

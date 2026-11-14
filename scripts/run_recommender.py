@@ -11,17 +11,15 @@ would get two answers.
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 from dades_huzz.data import RawTree
 from dades_huzz.serving import serve
-from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, load_split, parse_split
-from dades_huzz.serving.watchdog import KeepAwake, exit_when_watchdog_dies, supervise
+from dades_huzz.serving.split import parse_split
+from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, load_split
+from dades_huzz.serving.watchdog import exit_when_watchdog_dies, run_supervised
 
-ALIVE_FILE = Path(f"outputs/loop_alive_{os.getpid()}")
-"""One per watchdog: two watchdogs on one laptop must not see each other's loop as alive."""
 WATCHDOG_LOG = Path("outputs/watchdog.log")
 
 
@@ -72,23 +70,7 @@ def main() -> None:
             alive_path=args.alive_file,
         )
         return
-    child = [
-        sys.executable,
-        "-u",
-        __file__,
-        *sys.argv[1:],
-        "--no-watchdog",
-        "--alive-file",
-        str(ALIVE_FILE),
-    ]
-    with KeepAwake("dades-huzz serving loop") as awake:
-        print(f"watchdog: keep-awake: {awake.how}", flush=True)
-        try:
-            supervise(child, ALIVE_FILE, WATCHDOG_LOG)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            ALIVE_FILE.unlink(missing_ok=True)
+    run_supervised(__file__, sys.argv[1:], WATCHDOG_LOG)
 
 
 if __name__ == "__main__":

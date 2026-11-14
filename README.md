@@ -25,6 +25,28 @@ Every attempt, including the ones that lost, is in [docs/experiments.md](docs/ex
 **Tati Terminator** has the best expected conversion: about 1.4–1.6x the organisers' baseline in the same
 window (rows 19–20).
 
+### Versions at a glance
+
+What each model version does, in one line. Live conversion is the leaderboard's expected purchases per 100
+requests; compare versions only inside the same window, because conversion moves with the time of day.
+
+| Model version | What it shows | Signals | Live conversion (Sat, CET) |
+|---|---|---|---|
+| `tati-0-bestsellers` | The all-time best sellers, the same for everyone (the baseline) | History sales | 0.73 (15:25–15:56) |
+| `tati-destroyer-category` | Best sellers of the category viewed last, without the products already viewed | + category viewed last | 0.95 (15:25–16:06) |
+| `tati-terminator-category-viewed` | Destroyer, keeping the viewed products where they rank. **Champion, default split** | same | 1.05 (17:45–18:25) |
+| `tati-ultimatum-viewed-first` | Terminator with up to 3 viewed products on top | + viewed products first | 0.86 (17:45–18:25) |
+| `tati-ultimatum-cold` | Ultimatum; a cold request gets the trend of the categories viewed | + trend, recent purchases | not served yet |
+| `tati-terminator-category-viewed-live` | Terminator, each category ranked by live sales since the switch plus a tuned share of the history | + live sales | 1.01 (17:50–18:25) |
+| `tati-apocalypse-profile` | Terminator blended with the returning shopper's 3 favourite categories; never what they bought | + shopper profile, purchases | **1.26** (17:50–18:25) |
+| `tati-armageddon-viewed-profile` | Apocalypse with up to 3 viewed products on top | same | 1.00 (17:50–18:25) |
+| `tati-cart-profile` | Apocalypse with up to 3 products the returning shopper carted in the history and never bought on top (those of the category viewed last first) | + history carts | not served yet |
+| `lauri-titan-feedback` | Scores every candidate of the versions above with weights learned from our own carousels, and shows the 10 most likely to be bought | all of the above, weighed by `scripts/train_lauri.py` | not served yet |
+| `lauri-colossus-feedback` | Titan retrained on one more hour of our carousels, which also knows the shopper's day: the categories they viewed today, what is in their cart and what they viewed | + shopper's day | not served yet |
+
+Which versions ran when is in the heartbeats (`scripts/check_serving.py`, the dashboard's splits view); why
+each one exists is in [docs/experiments.md](docs/experiments.md).
+
 ## How it works
 
 ```text
@@ -97,8 +119,8 @@ the terminal open and the laptop plugged in. Stop it with Ctrl-C.
    ([docs/challenge/qa.md](docs/challenge/qa.md)). Nothing to restart. If the loop ever logs
    `catalogue changed: ...`, restart through the handover above, because models load their lists only at start.
 3. 10:00–12:00: the leaderboard is hidden. Run `check_serving.py --minutes 15` every 15 minutes, and keep
-   one teammate's loop in `standby` as a spare. Never two spares: if the active loop stops, both could
-   answer for a few seconds.
+   one teammate's loop in `standby` as a spare, started with the same `--versions`. More spares are safe:
+   if the active loop stops, only the one that started first takes over.
 
 ## Lane D dashboard
 
@@ -110,6 +132,19 @@ uv run --with "streamlit>=1.67,<2" streamlit run app/dashboard.py --server.addre
 
 Choose **Team** to monitor practice and serving, or **Jury** to present one version's confirmed
 sales. The app reads RawTree and the public competition leaderboard.
+
+### Private online dashboard
+
+A GitHub repository admin can connect [Streamlit Community Cloud](https://share.streamlit.io/)
+to the private repository and deploy `main` with `app/dashboard.py` as the
+entrypoint. Select Python 3.12. Community Cloud installs the app dependencies
+from `app/requirements.txt`.
+
+Keep the app private. To load results, the host needs `TEAM_ID` and an
+authorized server-side `RAWTREE_API_KEY` as top-level secrets. Confirm with
+the team which credential can be used for hosting. The local team key stays
+in its git-ignored `.env`. After launch, open **Jury** and check that results
+show a feedback timestamp.
 
 ## Layout
 

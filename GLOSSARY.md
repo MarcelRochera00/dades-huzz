@@ -48,6 +48,15 @@ can be compared between versions. _Avoid_: model, run.
 
 **Candidate**: a product considered for an answer before ranking.
 
+**Candidate pool**: every candidate a model version considers for one request, before ranking. A
+product outside the pool can never be shown, whatever the ranker does.
+
+**Candidate coverage**: the share of purchases whose product was in the candidate pool just before
+the purchase. It bounds what a ranker can reach; it says nothing about the order.
+
+**Co-view**: a signal linking products by what shoppers bought after viewing a product in the same
+session ("viewed X, then bought Y"). _Avoid_: similar products, related products.
+
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
@@ -81,7 +90,8 @@ reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request
 `out_of_stock`.
 
 **Handover**: how the serving loop moves between laptops: every loop sends a heartbeat, one is *active*
-(answers) and the others are *standby* (wait), and a standby takes over when the active one goes silent.
+(answers) and the others are *standby* (wait). When the active one goes silent, the standby that started first
+takes over.
 _Avoid_: failover, leader election.
 
 **Tati**: our recommender as a product. Each model version that beats the live champion takes the next
@@ -91,8 +101,8 @@ Apocalypse, Tati Armageddon, Tati Omega; the model version is `tati-<rank>-<idea
 rank only once it beats the champion live. Tati versions rank products by rules. _Avoid_: the bot, the
 model.
 
-**Lauri**: our second recommender family, for versions that learn the chance of a purchase from the old
-carousel log instead of following rules. Its ranks, in order: Lauri Titan, Lauri Colossus, Lauri
+**Lauri**: our second recommender family, for versions that learn the chance of a purchase from what
+happened with carousels (our own answers, or the old carousel log) instead of following rules. Its ranks, in order: Lauri Titan, Lauri Colossus, Lauri
 Singularity; the model version is `lauri-<rank>-<idea>`, and ranks are won as for Tati.
 
 **Returning shopper**: a shopper who is not new (`is_new_user` false) and so has past activity in the
@@ -100,6 +110,13 @@ store's history. _Avoid_: old user, known user.
 
 **Shopper profile**: a returning shopper's share of their past activity in each category (purchases count
 more than add-to-carts, which count more than views). _Avoid_: user embedding, user vector.
+
+**Shopper's day**: what a shopper, new or returning, did in the live stream since it started: the categories
+they viewed, what they carted and have not bought, and the products they viewed. It reaches further back than
+the request's recent views. _Avoid_: session (a day holds several), today's profile.
+
+**History cart**: a product a returning shopper added to the cart in the store's history and never bought.
+Unlike the day's cart, it comes from before the live stream. _Avoid_: abandoned cart, wishlist.
 
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.

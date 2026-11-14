@@ -233,3 +233,158 @@ def test_shopper_purchases_are_each_shoppers_bought_products():
     assert shopper_purchases(PurchasesRawTree(), until="2026-11-14 12:00:00") == {
         "u_1": frozenset({"p_a", "p_b"})
     }
+
+
+def test_lauri_features_describe_a_candidate_for_this_shopper():
+    import math
+
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys", "p3": "books"},
+        subcategory={"p1": "lego", "p2": "dolls", "p3": "novels"},
+        price={"p1": 20.0, "p2": 10.0, "p3": 5.0},
+        history_sales={"p2": 9},
+        live_sales={"p3": 3},
+        median_log_price={"toys": math.log(10.0), "books": math.log(5.0)},
+    )
+    rows = lauri_features(
+        ["p1", "p2", "p3", "unknown"],
+        ["p3", "p1"],
+        {"books": 0.8, "toys": 0.2},
+        signals,
+    )
+    by_name = [dict(zip(LAURI_FEATURES, row, strict=True)) for row in rows]
+    assert by_name[0]["viewed"] == 1 and by_name[0]["view_recency"] == 1
+    assert by_name[2]["viewed"] == 1 and by_name[2]["view_recency"] == 0.5
+    assert by_name[1]["viewed"] == 0
+    assert by_name[1]["same_category"] == 1 and by_name[1]["same_subcategory"] == 0
+    assert by_name[0]["same_subcategory"] == 1
+    assert by_name[1]["session_category_share"] == 0.5
+    assert by_name[2]["profile_share"] == 0.8 and by_name[2]["favourite_category"] == 1
+    assert by_name[1]["log_history_sales"] == math.log(10)
+    assert by_name[2]["log_live_sales"] == math.log(4)
+    assert math.isclose(by_name[0]["relative_price"], math.log(2))
+    assert not rows[3].any()
+
+
+def test_lauri_features_know_the_shoppers_day():
+    import math
+
+    from dades_huzz.features import (
+        LAURI_DAY_FEATURES,
+        LAURI_FEATURES,
+        LauriDay,
+        LauriSignals,
+        lauri_features,
+    )
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys", "p3": "books"},
+        subcategory={},
+        price={},
+        history_sales={"p2": 9},
+        live_sales={},
+        median_log_price={},
+    )
+    day = LauriDay({"toys": 3, "books": 1}, frozenset({"p2"}), ("p3",))
+    rows = lauri_features(["p1", "p2", "p3"], [], None, signals, day)
+    by_name = [dict(zip(LAURI_FEATURES, row, strict=True)) for row in rows]
+    assert by_name[0]["day_category_share"] == 0.75
+    assert by_name[2]["day_category_share"] == 0.25
+    assert [row["day_carted"] for row in by_name] == [0, 1, 0]
+    assert [row["day_viewed"] for row in by_name] == [0, 0, 1]
+    assert math.isclose(by_name[1]["day_history_sales"], 0.75 * math.log(10))
+    without = lauri_features(["p1", "p2", "p3"], [], None, signals)
+    day_columns = [LAURI_FEATURES.index(name) for name in LAURI_DAY_FEATURES]
+    assert not without[:, day_columns].any()
+    others = [i for i in range(len(LAURI_FEATURES)) if i not in day_columns]
+    assert (without[:, others] == rows[:, others]).all()
+
+
+def test_lauri_features_know_the_shoppers_history_carts():
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys"},
+        subcategory={},
+        price={},
+        history_sales={},
+        live_sales={},
+        median_log_price={},
+    )
+    rows = lauri_features(["p1", "p2"], [], None, signals, carts=frozenset({"p2"}))
+    column = LAURI_FEATURES.index("history_carted")
+    assert list(rows[:, column]) == [0, 1]
+    assert not lauri_features(["p1", "p2"], [], None, signals)[:, column].any()
+
+
+def test_a_day_replay_never_sees_what_came_after_the_cut():
+    from dades_huzz.features import DayReplay
+
+    category = {"p1": "toys", "p2": "toys", "p3": "books"}
+    replay = DayReplay(
+        [
+            (10, "view", "p1"),
+            (20, "add_to_cart", "p1"),
+            (30, "view", "p3"),
+            (40, "purchase", "p1"),
+            (50, "view", "p2"),
+        ]
+    )
+    day = replay.until(35, category)
+    assert day.categories == {"toys": 4, "books": 1}
+    assert day.carted == {"p1"} and list(day.viewed) == ["p3", "p1"]
+    day = replay.until(45, category)
+    assert day.carted == set() and list(day.viewed) == ["p3", "p1"]
+    day = replay.until(15, category)  # an earlier cut starts the day again
+    assert day.categories == {"toys": 1} and list(day.viewed) == ["p1"]
+
+
+class CartsRawTree:
+    def query(self, sql, timeout=10):
+        # carts come from the history; purchases from the history and live are left out
+        assert "add_to_cart" in sql and "shop.events" in sql and "NOT IN" in sql
+        return [{"user_id": "u_1", "products": ["p_new", "p_old"]}]
+
+
+def test_shopper_carts_are_each_shoppers_unbought_carts_latest_first():
+    from dades_huzz.features import shopper_carts
+
+    assert shopper_carts(CartsRawTree(), until="2026-11-14 12:00:00") == {
+        "u_1": ("p_new", "p_old")
+    }
+
+
+def test_shopper_taste_scores_what_similar_shoppers_liked_above_what_nobody_like_them_touched():
+    from dades_huzz.features import fit_shopper_taste
+
+    weights = {
+        "u1": {"a": 6, "b": 3, "e": 6},
+        "u2": {"a": 6, "b": 3},
+        "u3": {"c": 6, "d": 3},
+        "u4": {"c": 6, "d": 3, "f": 1},
+    }
+    taste = fit_shopper_taste(weights, factors=4, iterations=10)
+    scores = taste.scores("u2", ["e", "c", "f"])
+    assert scores["e"] > scores["c"] and scores["e"] > scores["f"]
+    assert taste.top("u2", 2, skip={"a"})[0] == "b"
+    assert taste.scores("stranger", ["a"]) == {}
+    assert taste.top("stranger", 3) == []
+
+
+def test_lauri_features_know_the_shoppers_taste():
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys"},
+        subcategory={},
+        price={},
+        history_sales={},
+        live_sales={},
+        median_log_price={},
+    )
+    rows = lauri_features(["p1", "p2"], [], None, signals, taste={"p2": 0.7})
+    column = LAURI_FEATURES.index("als_score")
+    assert list(rows[:, column]) == [0, 0.7]
+    assert column == len(LAURI_FEATURES) - 1  # new features go at the end

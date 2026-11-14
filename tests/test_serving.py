@@ -2,10 +2,9 @@ import time
 from datetime import UTC, datetime
 
 from dades_huzz.data import State
-from dades_huzz.serving import answer, decide_role, repair, validate
-from dades_huzz.serving.handover import Handover
+from dades_huzz.serving import answer, repair, validate
 from dades_huzz.serving.loop import LiveState
-from dades_huzz.serving.versions import Split
+from dades_huzz.serving.split import Split
 
 AVAILABLE = {f"p_{i:02d}" for i in range(20)}
 TEN = [f"p_{i:02d}" for i in range(10)]
@@ -51,143 +50,6 @@ def test_repair_keeps_valid_items_in_order_and_pads_from_fallback():
 
 def test_repair_cuts_long_answers_to_ten():
     assert repair(TEN + ["p_15"], AVAILABLE, []) == TEN
-
-
-ME = "loop_b"
-
-
-def beat(loop_id, ts_ms, role="active", started_ms=0):
-    return {"loop_id": loop_id, "ts_ms": ts_ms, "role": role, "started_ms": started_ms}
-
-
-def test_a_lone_loop_becomes_active():
-    assert (
-        decide_role(
-            ME,
-            "standby",
-            started_ms=0,
-            last_write_ms=9_000,
-            heartbeats=[],
-            now_ms=10_000,
-        )
-        == "active"
-    )
-
-
-def test_a_loop_waits_while_another_is_active_and_alive():
-    beats = [beat("loop_a", ts_ms=9_000)]
-    assert (
-        decide_role(
-            ME,
-            "standby",
-            started_ms=0,
-            last_write_ms=9_500,
-            heartbeats=beats,
-            now_ms=10_000,
-        )
-        == "standby"
-    )
-
-
-def test_a_waiting_loop_takes_over_when_the_active_one_goes_silent():
-    beats = [beat("loop_a", ts_ms=3_000)]
-    assert (
-        decide_role(
-            ME,
-            "standby",
-            started_ms=0,
-            last_write_ms=9_500,
-            heartbeats=beats,
-            now_ms=10_000,
-        )
-        == "active"
-    )
-
-
-def test_two_active_loops_leave_only_the_oldest_active():
-    beats = [
-        beat("loop_a", ts_ms=9_000, started_ms=1_000),
-        beat(ME, ts_ms=9_000, started_ms=2_000),
-    ]
-    assert (
-        decide_role(
-            ME,
-            "active",
-            started_ms=2_000,
-            last_write_ms=9_000,
-            heartbeats=beats,
-            now_ms=10_000,
-        )
-        == "standby"
-    )
-    assert (
-        decide_role(
-            "loop_a",
-            "active",
-            started_ms=1_000,
-            last_write_ms=9_000,
-            heartbeats=beats,
-            now_ms=10_000,
-        )
-        == "active"
-    )
-
-
-def test_a_loop_that_cannot_write_its_heartbeat_steps_down():
-    assert (
-        decide_role(
-            ME,
-            "active",
-            started_ms=0,
-            last_write_ms=3_000,
-            heartbeats=[],
-            now_ms=10_000,
-        )
-        == "standby"
-    )
-
-
-def test_only_the_latest_heartbeat_of_each_loop_counts():
-    beats = [
-        beat("loop_a", ts_ms=9_000, role="active"),
-        beat("loop_a", ts_ms=9_800, role="standby"),
-    ]
-    assert (
-        decide_role(
-            ME,
-            "standby",
-            started_ms=0,
-            last_write_ms=9_500,
-            heartbeats=beats,
-            now_ms=10_000,
-        )
-        == "active"
-    )
-
-
-def test_a_loop_that_cannot_read_the_heartbeats_keeps_its_role():
-    assert (
-        decide_role(
-            ME,
-            "standby",
-            started_ms=0,
-            last_write_ms=9_500,
-            heartbeats=None,
-            now_ms=10_000,
-        )
-        == "standby"
-    )
-    assert (
-        decide_role(
-            ME,
-            "active",
-            started_ms=0,
-            last_write_ms=9_500,
-            heartbeats=None,
-            now_ms=10_000,
-        )
-        == "active"
-    )
 
 
 def test_answer_replaces_a_product_whose_stock_just_changed_even_if_available():
@@ -269,6 +131,9 @@ class ChangingRawTree:
     def recent_events(self):
         return []
 
+    def query(self, sql, timeout=10):  # the shoppers' day: nothing happened
+        return []
+
 
 def test_live_state_picks_up_a_replaced_catalogue_without_a_restart():
     rawtree = ChangingRawTree([f"p_old_{i}" for i in range(10)])
@@ -340,26 +205,156 @@ def test_a_slow_events_read_never_holds_up_the_stock_refresh():
     assert oldest_ms < 1000
 
 
-class HeartbeatRawTree:
-    def __init__(self) -> None:
-        self.inserted: list[dict] = []
+def test_the_shoppers_day_reaches_the_state_backfill_first_then_new_events():
+    rawtree = ChangingRawTree(["p_toy1", "p_toy2"])
+    rawtree.categories = {"p_toy1": "Toys", "p_toy2": "Toys"}
 
-    def server_now_ms(self):
-        return int(time.time() * 1000)
+    def catalog():
+        return [
+            {"product_id": p, "price_eur": 1.0, "is_active": True, "category": "Toys"}
+            for p in rawtree.products
+        ]
 
-    def insert(self, table, rows):
-        self.inserted.extend(rows)
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: (
+            [{"u": "u1", "c": "Toys", "n": 2}],
+            [{"u": "u1", "p": "p_toy2"}],
+            [{"u": "u1", "v": ["p_toy2"]}],
+        ),
+        read_events=lambda since_ms: [
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 1000}
+        ],
+    )
+    deadline = time.monotonic() + 3
+    while live.state.shopper_viewed.get("u1", ())[:1] != ("p_toy1",):
+        assert time.monotonic() < deadline, live.state
+        time.sleep(0.02)
+    assert live.state.shopper_categories == {"u1": {"Toys": 3}}
+    assert live.state.shopper_carted == {"u1": frozenset({"p_toy2"})}
+    assert live.state.shopper_viewed == {"u1": ("p_toy1", "p_toy2")}
 
-    def heartbeats_since(self, since_ms):
+
+def test_a_slow_shoppers_read_never_holds_up_the_stock_refresh():
+    def slow(*_):
+        time.sleep(2)
         return []
 
-
-def test_the_heartbeat_carries_the_split_in_force_and_the_versions_left_out():
-    rawtree = HeartbeatRawTree()
-    Handover(
-        rawtree,
-        details=lambda: {"versions": "a=50,b=50", "out": "b"},
+    live = LiveState(
+        ChangingRawTree([f"p_{i}" for i in range(10)]),
+        shoppers_s=0.05,
+        read_events=slow,
+        read_day=lambda until_ms: ([], [], []),
     )
-    beat = rawtree.inserted[0]
-    assert beat["kind"] == "heartbeat"
-    assert (beat["versions"], beat["out"]) == ("a=50,b=50", "b")
+    time.sleep(0.3)
+    oldest_ms = 0
+    for _ in range(10):
+        time.sleep(0.15)
+        oldest_ms = max(oldest_ms, int(time.time() * 1000) - live.refreshed_ms)
+    assert oldest_ms < 1000
+
+
+def test_the_loop_says_when_the_shoppers_day_is_backfilled():
+    live = LiveState(
+        ChangingRawTree(["p_1"]),
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], []),
+        read_events=lambda since_ms: [],
+    )
+    assert live.shoppers_ready.wait(timeout=3)
+
+
+def test_hot_subcategories_reach_the_state_from_the_backfilled_window():
+    rawtree = ChangingRawTree(["p_kettle", "p_book"])
+
+    def catalog():
+        return [
+            {
+                "product_id": "p_kettle",
+                "price_eur": 1.0,
+                "is_active": True,
+                "subcategory": "Kettles",
+            },
+            {
+                "product_id": "p_book",
+                "price_eur": 1.0,
+                "is_active": True,
+                "subcategory": "Books",
+            },
+        ]
+
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], []),
+        read_events=lambda since_ms: [],
+        read_heat=lambda until_ms: (
+            {"Books": 900, "Kettles": 100},
+            [{"p": "p_kettle", "t": now - 60_000 + i} for i in range(40)],
+        ),
+    )
+    deadline = time.monotonic() + 3
+    while "Kettles" not in live.state.hot_subcategories:
+        assert time.monotonic() < deadline, live.state.hot_subcategories
+        time.sleep(0.02)
+    assert set(live.state.hot_subcategories) == {"Kettles"}
+
+
+def test_brands_view_counts_and_region_sales_reach_the_state():
+    rawtree = ChangingRawTree(["p_toy1", "p_tv"])
+
+    def catalog():
+        return [
+            {
+                "product_id": "p_toy1",
+                "price_eur": 1.0,
+                "is_active": True,
+                "category": "Toys",
+                "brand": "Lego",
+            },
+            {
+                "product_id": "p_tv",
+                "price_eur": 1.0,
+                "is_active": True,
+                "category": "Electronics",
+                "brand": "Sony",
+            },
+        ]
+
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], [], [{"u": "u1", "b": "Sony", "n": 2}]),
+        read_events=lambda since_ms: [
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 1000, "g": "Madrid"},
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 2000, "g": "Madrid"},
+            {"u": "u2", "p": "p_tv", "e": "purchase", "t": now + 3000, "g": "Galicia"},
+        ],
+        read_heat=lambda until_ms: ({}, []),
+        read_region=lambda until_ms: [{"g": "Madrid", "p": "p_tv", "n": 5}],
+    )
+    deadline = time.monotonic() + 3
+    while not live.state.region_purchases.get("Galicia"):
+        assert time.monotonic() < deadline, live.state
+        time.sleep(0.02)
+    assert live.state.brand == {"p_toy1": "Lego", "p_tv": "Sony"}
+    assert live.state.shopper_brands == {"u1": {"Sony": 2, "Lego": 2}}
+    assert live.state.shopper_view_counts == {"u1": {"p_toy1": 2}}
+    assert live.state.region_purchases == {
+        "Madrid": {"p_tv": 5},
+        "Galicia": {"p_tv": 1},
+    }
+
+
+def test_lauri_omni_is_a_live_version():
+    """Marcel's combined model (#7) can be put in a split by name."""
+    from dades_huzz.serving.versions import VERSIONS
+
+    assert "lauri-omni" in VERSIONS

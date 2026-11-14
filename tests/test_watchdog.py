@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 
@@ -5,6 +6,7 @@ from dades_huzz.serving.watchdog import (
     AliveClock,
     mark_alive,
     quick_failures_after,
+    remove_stale_alive_files,
     restart_delay_s,
     restart_reason,
     supervise,
@@ -114,3 +116,18 @@ def test_a_loop_still_starting_up_gets_the_startup_grace_not_the_hang_limit(tmp_
     )
     assert time.monotonic() - started > 1.8
     assert "the loop hung" in log.read_text()
+
+
+def test_alive_files_left_by_killed_watchdogs_are_removed_after_an_hour(tmp_path):
+    old, recent, other = (
+        tmp_path / "loop_alive_1",
+        tmp_path / "loop_alive_2",
+        tmp_path / "serve_log.jsonl",
+    )
+    for path in (old, recent, other):
+        path.write_text("running")
+    two_hours_ago = time.time() - 7200
+    os.utime(old, (two_hours_ago, two_hours_ago))
+    os.utime(other, (two_hours_ago, two_hours_ago))
+    assert remove_stale_alive_files(tmp_path) == [old]
+    assert not old.exists() and recent.exists() and other.exists()

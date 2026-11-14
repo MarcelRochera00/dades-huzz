@@ -5,11 +5,17 @@ category ranking every minute from the purchases since the switch.
 Lane C scores the live stream: a trend is the weighted count of `shop.events` over the last 15 minutes.
 """
 
+import math
 import threading
 import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections import Counter
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import numpy as np
 
 from dades_huzz.data import RawTree, Record
 
@@ -71,6 +77,25 @@ FROM (
 GROUP BY user_id"""
 """Every product each shopper bought before `until`: in the history, a snapshot from before the event, and live
 in shop.events, which keeps growing through Sunday (organisers, Sat 17:30)."""
+
+SHOPPER_CARTS = """
+SELECT user_id, arrayMap(x -> x.2, arrayReverseSort(x -> x.1, groupArray((last_cart, product_id)))) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id, max(ts::DateTime64(3)) AS last_cart
+    FROM shop.history_events
+    WHERE event_type = 'add_to_cart' AND ts::DateTime64(3) < '{until}'
+    GROUP BY user_id, product_id
+)
+WHERE (user_id, product_id) NOT IN (
+    SELECT user_id::String, product_id::String FROM shop.history_events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String, product_id::String FROM shop.events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
+GROUP BY user_id"""
+"""Each shopper's products added to the cart in the history and never bought (history or live), latest cart
+first. About 51,000 shoppers, median 5 products, in about 2 s."""
 
 
 @dataclass(frozen=True)
@@ -312,6 +337,10 @@ class LiveCategoryRanking:
         }
         total = sum(history.values()) or 1
         self.history_share = {product: n / total for product, n in history.items()}
+        self.history_sales = history
+        """Each product's purchases in the history (Lauri reads it)."""
+        self.live_sales: dict[str, int] = {}
+        """Each product's live purchases as of the last refresh (Lauri reads it)."""
         self.prior_weight: float = START_PRIOR_WEIGHT
         self._snapshot: tuple[dict[str, str], dict[str, list[str]]] = ({}, {})
         self.refresh()
@@ -341,6 +370,7 @@ class LiveCategoryRanking:
                 before, recent, self.history_share, category_of
             )
         self.prior_weight = weight
+        self.live_sales = live
         self._snapshot = (
             category_of,
             category_ranking(live, self.history_share, category_of, weight),
@@ -358,6 +388,10 @@ class LiveCategoryRanking:
             category_of=_LiveMapping(lambda: self._snapshot[0]),
             ranked_by_category=_LiveMapping(lambda: self._snapshot[1]),
         )
+
+    def live_sales_now(self) -> Mapping[str, int]:
+        """Each product's live purchases, always as of the latest refresh."""
+        return _LiveMapping(lambda: self.live_sales)
 
     def start(self, every_s: float = REFRESH_S) -> "LiveCategoryRanking":
         """Refresh every `every_s` in a background thread, never on the answering path."""
@@ -408,3 +442,549 @@ def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]
         row["user_id"]: frozenset(row["products"])
         for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
     }
+
+
+def shopper_carts(rawtree: RawTree, until: str) -> dict[str, tuple[str, ...]]:
+    """What each shopper put in the cart in the history and never bought, latest cart first. Live, such a
+    product shown in slots 1-3 to a returning shopper sold 70 times per 10,000 shows against 6.6 for the
+    other products, both unviewed in the session (docs/experiments.md row 46)."""
+    return {
+        row["user_id"]: tuple(row["products"])
+        for row in rawtree.query(SHOPPER_CARTS.format(until=until), timeout=120)
+    }
+
+
+TASTE_INPUT = """
+SELECT user_id::String AS user_id, groupArray(product_id) AS products, groupArray(weight) AS weights
+FROM (
+    SELECT user_id, product_id::String AS product_id,
+           sum(multiIf(event_type = 'purchase', 6, event_type = 'add_to_cart', 3, 1)) AS weight
+    FROM shop.history_events
+    WHERE cityHash64(user_id::String) % {parts} = {part}
+    GROUP BY user_id, product_id
+)
+GROUP BY user_id"""
+"""Each shopper's history per product: a purchase counts 6, an add-to-cart 3, a view 1 (#62's recipe)."""
+TASTE_FACTORS = 24
+TASTE_ALPHA = 10.0
+TASTE_REG = 0.1
+TASTE_ITERATIONS = 8
+TASTE_CACHE = Path("outputs/shopper_taste.npz")
+"""The history is a snapshot from before the event, so the taste is fitted once per laptop and kept here."""
+
+
+@dataclass(frozen=True)
+class ShopperTaste:
+    """Implicit-feedback ALS on the history: one vector per returning shopper and per product, whose dot
+    product says how much the shopper would like the product. New shoppers have no vector."""
+
+    users: Mapping[str, int]
+    user_factors: np.ndarray
+    products: Mapping[str, int]
+    product_factors: np.ndarray
+
+    def scores(self, user: str, products: Iterable[str]) -> dict[str, float]:
+        row = self.users.get(user)
+        if row is None:
+            return {}
+        vector = self.user_factors[row]
+        return {
+            p: float(self.product_factors[self.products[p]] @ vector)
+            for p in products
+            if p in self.products
+        }
+
+    def top(self, user: str, n: int, skip: AbstractSet[str] = frozenset()) -> list[str]:
+        """The shopper's n best-liked products, leaving out `skip`."""
+        row = self.users.get(user)
+        if row is None:
+            return []
+        scores = self.product_factors @ self.user_factors[row]
+        names = self._names()
+        best = []
+        for index in np.argsort(-scores, kind="stable")[: n + len(skip)]:
+            if names[index] not in skip:
+                best.append(names[index])
+                if len(best) == n:
+                    break
+        return best
+
+    def _names(self) -> list[str]:
+        cached = self.__dict__.get("_names_cache")
+        if cached is None:
+            cached = [""] * len(self.products)
+            for name, index in self.products.items():
+                cached[index] = name
+            object.__setattr__(self, "_names_cache", cached)
+        return cached
+
+
+class _Compressed:
+    """A sparse matrix by rows (indptr, indices, data), enough for ALS without another dependency."""
+
+    def __init__(
+        self, rows: np.ndarray, columns: np.ndarray, values: np.ndarray, n_rows: int
+    ):
+        order = np.argsort(rows, kind="stable")
+        self.indices, self.data = columns[order], values[order]
+        self.indptr = np.r_[0, np.cumsum(np.bincount(rows, minlength=n_rows))]
+        self.shape = (n_rows,)
+
+
+def _als_half_step(matrix, fixed: np.ndarray, alpha: float, reg: float) -> np.ndarray:
+    """Solve every row's vector with the other side fixed (Hu, Koren and Volinsky's implicit ALS)."""
+    factors = fixed.shape[1]
+    gram = fixed.T @ fixed + reg * np.eye(factors)
+    out = np.zeros((matrix.shape[0], factors))
+    for row in range(matrix.shape[0]):
+        start, end = matrix.indptr[row], matrix.indptr[row + 1]
+        if start == end:
+            continue
+        columns = fixed[matrix.indices[start:end]]
+        confidence = alpha * matrix.data[start:end]
+        a = gram + (columns.T * confidence) @ columns
+        b = ((1 + confidence)[:, None] * columns).sum(0)
+        out[row] = np.linalg.solve(a, b)
+    return out
+
+
+def fit_shopper_taste(
+    weights: Mapping[str, Mapping[str, float]],
+    factors: int = TASTE_FACTORS,
+    alpha: float = TASTE_ALPHA,
+    reg: float = TASTE_REG,
+    iterations: int = TASTE_ITERATIONS,
+) -> ShopperTaste:
+    """ALS from each shopper's weight per product (log-damped, so heavy repeaters do not dominate)."""
+    users = {user: i for i, user in enumerate(sorted(weights))}
+    products = {
+        p: i for i, p in enumerate(sorted({p for row in weights.values() for p in row}))
+    }
+    rows, columns, values = [], [], []
+    for user, row in weights.items():
+        for product, weight in row.items():
+            rows.append(users[user])
+            columns.append(products[product])
+            values.append(math.log1p(weight))
+    rows_, columns_, values_ = np.array(rows), np.array(columns), np.array(values)
+    matrix = _Compressed(rows_, columns_, values_, len(users))
+    transposed = _Compressed(columns_, rows_, values_, len(products))
+    rng = np.random.default_rng(0)
+    user_factors = rng.normal(0, 0.1, (len(users), factors))
+    product_factors = rng.normal(0, 0.1, (len(products), factors))
+    for _ in range(iterations):
+        user_factors = _als_half_step(matrix, product_factors, alpha, reg)
+        product_factors = _als_half_step(transposed, user_factors, alpha, reg)
+    return ShopperTaste(users, user_factors, products, product_factors)
+
+
+def shopper_taste(
+    rawtree: RawTree, parts: int = 16, cache: Path = TASTE_CACHE
+) -> ShopperTaste:
+    """The shoppers' taste from the whole history: read from `cache` if fitted before, otherwise about 30 s
+    of reads and a few minutes of fitting, then cached."""
+    if cache.exists():
+        saved = np.load(cache, allow_pickle=False)
+        return ShopperTaste(
+            {u: i for i, u in enumerate(saved["users"].tolist())},
+            saved["user_factors"],
+            {p: i for i, p in enumerate(saved["products"].tolist())},
+            saved["product_factors"],
+        )
+    weights: dict[str, dict[str, float]] = {}
+    for part in range(parts):
+        for row in rawtree.query(
+            TASTE_INPUT.format(parts=parts, part=part), timeout=120
+        ):
+            weights[row["user_id"]] = dict(
+                zip(row["products"], map(float, row["weights"]), strict=True)
+            )
+    taste = fit_shopper_taste(weights)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        cache,
+        users=np.array(sorted(taste.users, key=taste.users.get)),
+        user_factors=taste.user_factors,
+        products=np.array(sorted(taste.products, key=taste.products.get)),
+        product_factors=taste.product_factors,
+    )
+    return taste
+
+
+LAURI_FEATURES = (
+    "viewed",
+    "view_recency",
+    "same_category",
+    "same_subcategory",
+    "session_category_share",
+    "profile_share",
+    "favourite_category",
+    "log_history_sales",
+    "session_history_sales",
+    "viewed_history_sales",
+    "log_live_sales",
+    "log_price",
+    "relative_price",
+    "day_category_share",
+    "day_carted",
+    "day_viewed",
+    "day_history_sales",
+    "history_carted",
+    "als_score",
+)
+"""What Lauri knows about one candidate for one request, in the order of the columns of `lauri_features`.
+`session_history_sales` and `viewed_history_sales` are the history sales counted only as far as the product is
+in a category of the session, or was viewed: in our own carousels a best seller is bought far more often than
+a slow seller, and most of all when the shopper viewed it (docs/experiments.md row 44).
+
+New features go at the end, never in between: weights stored earlier (Lauri Titan's thirteen) stay valid and
+count the later features as zero."""
+
+LAURI_DAY_FEATURES = (
+    "day_category_share",
+    "day_carted",
+    "day_viewed",
+    "day_history_sales",
+)
+"""What Lauri Colossus adds, from the shopper's day (`LauriDay`): the category's share of today's views, the
+product is in today's cart, the product was viewed today, and the history sales counted as far as that share."""
+LAURI_CART_FEATURES = ("history_carted",)
+"""What Lauri Titan+ adds: the product is in one of the shopper's history carts and was never bought. In our
+own carousels such a product sells 5.4 times the average shown product (#5, 19:22 UTC)."""
+LAURI_TASTE_FEATURES = ("als_score",)
+"""What Lauri Titan ALS adds: how much the shopper's taste (`ShopperTaste`, from the history) likes the product.
+On the old carousel log, products in a shopper's top 19 % of ALS scores sold 4.72x the others at the same slot
+and popularity (#62)."""
+DAY_CART_WEIGHT = 3
+DAY_VIEWED_MAX = 20
+"""As the serving loop keeps a shopper's day in `State` (docs/contracts.md): an add-to-cart counts three views
+of its category, and the last twenty distinct products viewed are kept."""
+DAY_LAG_MS = 10_000
+"""Training sees a shopper's day only up to this long before the request: live, `State` runs a few seconds
+behind `shop.events`, so a training row must not know more than a live one would."""
+
+
+@dataclass(frozen=True)
+class LauriDay:
+    """One shopper's day so far in `shop.events`, as `State` keeps it (`shopper_categories`, `shopper_carted`,
+    `shopper_viewed`)."""
+
+    categories: Mapping[str, int]
+    """Category to views today; an add-to-cart counts DAY_CART_WEIGHT."""
+    carted: AbstractSet[str]
+    """Products carted today and not bought since."""
+    viewed: Sequence[str]
+    """The last DAY_VIEWED_MAX distinct products viewed today, latest first."""
+
+
+@dataclass(frozen=True)
+class LauriSignals:
+    """What `lauri_features` reads about products. Training passes them as they stood before each request;
+    serving passes the live ones."""
+
+    category: Mapping[str, str]
+    subcategory: Mapping[str, str]
+    price: Mapping[str, float]
+    history_sales: Mapping[str, int]
+    live_sales: Mapping[str, int]
+    median_log_price: Mapping[str, float]
+    """Each category's median log price, so a product can be cheap or dear for its category."""
+
+
+def median_log_prices(
+    category: Mapping[str, str], price: Mapping[str, float]
+) -> dict[str, float]:
+    logs: dict[str, list[float]] = {}
+    for product, name in category.items():
+        if price.get(product, 0) > 0:
+            logs.setdefault(name, []).append(math.log(price[product]))
+    return {name: float(np.median(values)) for name, values in logs.items()}
+
+
+def lauri_features(
+    products: Sequence[str],
+    viewed: Sequence[str],
+    profile: Mapping[str, float] | None,
+    signals: LauriSignals,
+    day: LauriDay | None = None,
+    carts: AbstractSet[str] = frozenset(),
+    taste: Mapping[str, float] | None = None,
+) -> np.ndarray:
+    """One row of LAURI_FEATURES per product, for a shopper who viewed `viewed` (oldest first), whose
+    shopper profile is `profile`, whose day so far is `day` (without it the day's features are zero) and who
+    carted `carts` in the history without buying them, and whose taste scores products as `taste`. The same function builds the training rows and the
+    live ones."""
+    day_views = sum(day.categories.values()) if day else 0
+    day_viewed = frozenset(day.viewed) if day else frozenset()
+    category, subcategory = signals.category, signals.subcategory
+    recency = {product: len(viewed) - i for i, product in enumerate(viewed)}
+    last_category = category.get(viewed[-1]) if viewed else None
+    last_subcategory = subcategory.get(viewed[-1]) if viewed else None
+    session = Counter(category[p] for p in viewed if p in category)
+    views = sum(session.values())
+    profile = profile or {}
+    taste = taste or {}
+    favourite = (
+        max(profile, key=lambda name: (profile[name], name)) if profile else None
+    )
+    rows = np.zeros((len(products), len(LAURI_FEATURES)))
+    for row, product in zip(rows, products, strict=True):
+        name = category.get(product)
+        if name is None:
+            continue
+        price = signals.price.get(product, 0.0)
+        log_price = (
+            math.log(price) if price > 0 else signals.median_log_price.get(name, 0.0)
+        )
+        sales = math.log1p(signals.history_sales.get(product, 0))
+        share = session[name] / views if views else 0.0
+        day_share = day.categories.get(name, 0) / day_views if day_views else 0.0
+        row[:] = (
+            product in recency,
+            1 / recency[product] if product in recency else 0.0,
+            name == last_category,
+            last_subcategory is not None
+            and subcategory.get(product) == last_subcategory,
+            share,
+            profile.get(name, 0.0),
+            name == favourite,
+            sales,
+            sales * share,
+            sales * (product in recency),
+            math.log1p(signals.live_sales.get(product, 0)),
+            log_price,
+            log_price - signals.median_log_price.get(name, log_price),
+            day_share,
+            day is not None and product in day.carted,
+            product in day_viewed,
+            sales * day_share,
+            product in carts,
+            taste.get(product, 0.0),
+        )
+    return rows
+
+
+LAURI_FEEDBACK = """
+SELECT f.request_id::String AS request_id, toUnixTimestamp64Milli(f.ts::DateTime64(3)) AS ts_ms,
+       f.shown AS shown, f.purchased::String AS purchased, f.clicked::String AS clicked,
+       r.user_id::String AS user_id, r.is_new_user::Bool AS is_new_user, r.recent_views AS recent_views,
+       toUnixTimestamp64Milli(r.ts::DateTime64(3)) AS request_ms
+FROM {team}.feedback AS f
+INNER JOIN shop.requests AS r ON f.request_id::String = r.request_id::String
+WHERE f.served_by::String = 'team' AND f.request_id::String != '__init__'
+  AND cityHash64(f.request_id::String) % {parts} = {part}"""
+"""Our own answers with what happened and who saw them, one part at a time (the whole is a large reply)."""
+
+LIVE_PURCHASE_TIMES = """
+SELECT product_id::String AS product_id, user_id::String AS user_id,
+       toUnixTimestamp64Milli(ts::DateTime64(3)) AS ts_ms
+FROM shop.events
+WHERE event_type::String = 'purchase' AND ts::DateTime64(3) >= '{since}'
+ORDER BY ts_ms"""
+
+DAY_EVENTS = """
+SELECT user_id::String AS u, product_id::String AS p, event_type::String AS e,
+       toUnixTimestamp64Milli(ts::DateTime64(3)) AS t
+FROM shop.events
+WHERE cityHash64(user_id::String) % {parts} = {part}
+  AND user_id::String IN (
+      SELECT r.user_id::String FROM {team}.feedback AS f
+      INNER JOIN shop.requests AS r ON f.request_id::String = r.request_id::String
+      WHERE f.served_by::String = 'team')"""
+"""Every event of the shoppers we answered, one part at a time, to rebuild their day before each request."""
+
+LIVE_SALES_STEP_MS = 10 * 60_000
+"""Training counts a product's live sales up to the last ten-minute mark before the request: serving
+refreshes them every minute, so a training row must not know more than a live one would."""
+
+
+class _SalesBefore(Mapping):
+    """Each product's live purchases before `cut_ms`, read from its sorted purchase times."""
+
+    def __init__(self, times: Mapping[str, np.ndarray], cut_ms: int) -> None:
+        self.times, self.cut_ms = times, cut_ms
+
+    def __getitem__(self, product: str) -> int:
+        return int(np.searchsorted(self.times[product], self.cut_ms))
+
+    def __iter__(self) -> Iterator:
+        return iter(self.times)
+
+    def __len__(self) -> int:
+        return len(self.times)
+
+
+class DayReplay:
+    """One shopper's events (time, kind, product), replayed up to each of their requests into a `LauriDay`,
+    counted as the serving loop counts them."""
+
+    def __init__(self, events: Iterable[tuple[int, str, str]]) -> None:
+        self.events = sorted(events)
+        self._restart()
+
+    def _restart(self) -> None:
+        self.next, self.cut_ms = 0, 0
+        self.categories: dict[str, int] = {}
+        self.carted: set[str] = set()
+        self.viewed: list[str] = []
+
+    def until(self, cut_ms: int, category: Mapping[str, str]) -> LauriDay:
+        """The day before `cut_ms`. The result is only valid until the next call."""
+        if cut_ms < self.cut_ms:
+            self._restart()
+        self.cut_ms = cut_ms
+        while self.next < len(self.events) and self.events[self.next][0] < cut_ms:
+            _, kind, product = self.events[self.next]
+            self.next += 1
+            if kind != "purchase" and (name := category.get(product)):
+                weight = DAY_CART_WEIGHT if kind == "add_to_cart" else 1
+                self.categories[name] = self.categories.get(name, 0) + weight
+            if kind == "view":
+                if product in self.viewed:
+                    self.viewed.remove(product)
+                self.viewed.insert(0, product)
+                del self.viewed[DAY_VIEWED_MAX:]
+            elif kind == "add_to_cart":
+                self.carted.add(product)
+            elif kind == "purchase":
+                self.carted.discard(product)
+        return LauriDay(self.categories, self.carted, self.viewed)
+
+
+def shopper_day_replays(rawtree: RawTree, parts: int = 16) -> dict[str, DayReplay]:
+    """A replay of the day of every shopper we answered, read from `shop.events`."""
+    events: dict[str, list[tuple[int, str, str]]] = {}
+    for part in range(parts):
+        sql = DAY_EVENTS.format(team=rawtree.team, parts=parts, part=part)
+        for row in rawtree.query(sql, timeout=120):
+            events.setdefault(row["u"], []).append((row["t"], row["e"], row["p"]))
+    return {user: DayReplay(rows) for user, rows in events.items()}
+
+
+@dataclass(frozen=True)
+class LauriTrainingRows:
+    """Our own carousels as training rows: ten per answered request, in the order shown."""
+
+    features: np.ndarray
+    slot: np.ndarray
+    owned: np.ndarray
+    """The shopper had already bought the product: known only to explain the past, never served."""
+    purchased: np.ndarray
+    clicked: np.ndarray
+    request: np.ndarray
+    ts_ms: np.ndarray
+    is_new_user: np.ndarray
+
+
+def lauri_training_rows(
+    rawtree: RawTree, parts: int = 8, taste: ShopperTaste | None = None
+) -> LauriTrainingRows:
+    """Every product we showed, with LAURI_FEATURES as they stood before its request, and what happened.
+    Without `taste`, `als_score` is zero."""
+    feedback = [
+        row
+        for part in range(parts)
+        for row in rawtree.query(
+            LAURI_FEEDBACK.format(team=rawtree.team, parts=parts, part=part),
+            timeout=120,
+        )
+    ]
+    feedback.sort(key=lambda row: row["ts_ms"])
+    catalog = rawtree.catalog()
+    category = {row["product_id"]: row["category"] for row in catalog}
+    subcategory = {row["product_id"]: row["subcategory"] for row in catalog}
+    price = {row["product_id"]: float(row["price_eur"]) for row in catalog}
+    history = {
+        row["product_id"]: int(row["n"])
+        for row in rawtree.query(HISTORY_PURCHASES, timeout=60)
+    }
+    times: dict[str, list[int]] = {}
+    bought_live: dict[str, list[tuple[int, str]]] = {}
+    for row in rawtree.query(
+        LIVE_PURCHASE_TIMES.format(since=PRACTICE_ROUND_START), timeout=120
+    ):
+        times.setdefault(row["product_id"], []).append(row["ts_ms"])
+        bought_live.setdefault(row["user_id"], []).append(
+            (row["ts_ms"], row["product_id"])
+        )
+    sale_times = {product: np.array(moments) for product, moments in times.items()}
+    profiles = shopper_profiles(rawtree, until=PRACTICE_ROUND_START)
+    bought = shopper_purchases(rawtree, until=PRACTICE_ROUND_START)
+    carts = {
+        user: frozenset(products)
+        for user, products in shopper_carts(rawtree, until=PRACTICE_ROUND_START).items()
+    }
+    medians = median_log_prices(category, price)
+    days = shopper_day_replays(rawtree)
+    features, owned = [], []
+    for row in feedback:
+        cut = row["ts_ms"] - row["ts_ms"] % LIVE_SALES_STEP_MS
+        signals = LauriSignals(
+            category,
+            subcategory,
+            price,
+            history,
+            _SalesBefore(sale_times, cut),
+            medians,
+        )
+        viewed = [view["product_id"] for view in row["recent_views"] or []]
+        user = row["user_id"]
+        day = (
+            days[user].until(row["request_ms"] - DAY_LAG_MS, category)
+            if user in days
+            else None
+        )
+        features.append(
+            lauri_features(
+                row["shown"],
+                viewed,
+                profiles.get(user),
+                signals,
+                day,
+                carts.get(user, frozenset()),
+                taste.scores(user, row["shown"]) if taste is not None else None,
+            )
+        )
+        mine = set(bought.get(user, ())) | {
+            product
+            for moment, product in bought_live.get(user, ())
+            if moment < row["ts_ms"]
+        }
+        owned.append([product in mine for product in row["shown"]])
+    shown = [row["shown"] for row in feedback]
+    return LauriTrainingRows(
+        features=np.concatenate(features),
+        slot=np.concatenate([np.arange(len(items)) for items in shown]),
+        owned=np.concatenate(owned).astype(float),
+        purchased=np.array(
+            [
+                p == row["purchased"]
+                for row, items in zip(feedback, shown, strict=True)
+                for p in items
+            ],
+            dtype=float,
+        ),
+        clicked=np.array(
+            [
+                p == row["clicked"]
+                for row, items in zip(feedback, shown, strict=True)
+                for p in items
+            ],
+            dtype=float,
+        ),
+        request=np.concatenate(
+            [np.full(len(items), i) for i, items in enumerate(shown)]
+        ),
+        ts_ms=np.concatenate(
+            [
+                np.full(len(items), row["ts_ms"])
+                for row, items in zip(feedback, shown, strict=True)
+            ]
+        ),
+        is_new_user=np.concatenate(
+            [
+                np.full(len(items), bool(row["is_new_user"]))
+                for row, items in zip(feedback, shown, strict=True)
+            ]
+        ),
+    )
