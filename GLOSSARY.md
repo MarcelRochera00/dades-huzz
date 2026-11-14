@@ -48,6 +48,15 @@ can be compared between versions. _Avoid_: model, run.
 
 **Candidate**: a product considered for an answer before ranking.
 
+**Candidate pool**: every candidate a model version considers for one request, before ranking. A
+product outside the pool can never be shown, whatever the ranker does.
+
+**Candidate coverage**: the share of purchases whose product was in the candidate pool just before
+the purchase. It bounds what a ranker can reach; it says nothing about the order.
+
+**Co-view**: a signal linking products by what shoppers bought after viewing a product in the same
+session ("viewed X, then bought Y"). _Avoid_: similar products, related products.
+
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
