@@ -57,6 +57,10 @@ the purchase. It bounds what a ranker can reach; it says nothing about the order
 **Co-view**: a signal linking products by what shoppers bought after viewing a product in the same
 session ("viewed X, then bought Y"). _Avoid_: similar products, related products.
 
+**Co-viewing**: a signal linking two products that the same shopper viewed on the same day, with no
+purchase needed. Measured in row 62 of `docs/experiments.md`; never served. _Avoid_: co-view, which
+needs a purchase.
+
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
