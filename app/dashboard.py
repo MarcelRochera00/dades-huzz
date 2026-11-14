@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import altair as alt
@@ -21,6 +22,12 @@ from dades_huzz.dashboard_leaderboard import (
     official_team_score,
     practice_series,
 )
+from dades_huzz.dashboard_splits import (
+    SplitPeriod,
+    SplitStats,
+    load_splits,
+    read_split_stats,
+)
 from dades_huzz.dashboard_team import read_cold_groups, read_health, read_trends
 from dades_huzz.data import RawTree
 
@@ -29,6 +36,28 @@ PRACTICE_START = datetime.fromtimestamp(PRACTICE_START_MS / 1000, UTC)
 PRACTICE_END = datetime.fromtimestamp(FINAL_START_MS / 1000, UTC)
 
 st.set_page_config(page_title="Tati · Recommendation dashboard", layout="wide")
+st.html(Path(__file__).with_name("dashboard.css"))
+
+TEAL = "#126e65"
+BLUE = "#2b5a8e"
+VERSION_COLORS = [TEAL, BLUE, "#a04e29", "#814d88", "#606d34", "#687484", "#ad4659"]
+
+
+def chart_style(chart):
+    return (
+        chart.configure(background="white", font="Inter, Segoe UI, sans-serif")
+        .configure_view(stroke=None)
+        .configure_axis(
+            domain=False,
+            gridColor="#e9eff2",
+            labelColor="#506676",
+            tickColor="#dce6ea",
+            titleColor="#365362",
+            labelPadding=7,
+            titlePadding=10,
+        )
+        .configure_legend(labelColor="#365362", titleColor="#172735")
+    )
 
 
 def local_time(epoch_seconds: float) -> str:
@@ -41,6 +70,11 @@ def rate(count: int, total: int) -> str:
 
 def chart_time(value: datetime) -> str:
     return value.astimezone(BARCELONA).strftime("%d %b %H:%M")
+
+
+def barcelona_chart_time(value: datetime) -> str:
+    # Plot Barcelona wall time on a fixed axis regardless of the browser's time zone.
+    return value.astimezone(BARCELONA).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def fetch_latest[T](key: str, load: Callable[[], T]) -> T | None:
@@ -92,6 +126,16 @@ def leaderboard_history(team: str, start: datetime, end: datetime) -> list[dict]
     return practice_series(team, start, end)
 
 
+@st.cache_data(ttl=50, show_spinner=False)
+def split_history(end: datetime) -> list[SplitPeriod]:
+    return load_splits(RawTree.from_env(), end)
+
+
+@st.cache_data(ttl=50, show_spinner=False)
+def split_stats(period: SplitPeriod) -> SplitStats:
+    return read_split_stats(RawTree.from_env(), period)
+
+
 def clock_slot(minutes: int = 1) -> datetime:
     now = datetime.now(UTC)
     timestamp = int(now.timestamp())
@@ -114,13 +158,22 @@ def serving_health(end: datetime) -> None:
     if latest is not None:
         st.caption(f"Feedback through {local_time(latest)}")
     columns = st.columns(4)
-    columns[0].metric("Valid and on time", rate(health["on_time"], health["completed"]))
-    columns[1].metric("Requests with feedback", f"{health['completed']:,}")
-    columns[2].metric("Awaiting feedback", f"{health['pending']:,}")
+    columns[0].metric(
+        "Valid and on time", rate(health["on_time"], health["completed"]), border=True
+    )
+    columns[1].metric(
+        "Organizer fallback",
+        rate(health["organizer_fallbacks"], health["completed"]),
+        help="Share of requests with feedback where organizers showed their backup list.",
+        border=True,
+    )
+    columns[2].metric("Awaiting feedback", f"{health['pending']:,}", border=True)
     slow = health["p95_ms"]
     columns[3].metric(
-        "95% of valid answers within",
+        "95% answered within",
         f"{slow / 1000:.2f} s" if slow is not None else "—",
+        help="Time within which 95% of valid, on-time answers were delivered.",
+        border=True,
     )
     median = health["p50_ms"]
     outcomes = " · ".join(
@@ -128,14 +181,14 @@ def serving_health(end: datetime) -> None:
     )
     if median is not None:
         outcomes += f" · Typical on-time answer: {median / 1000:.2f} s"
-    st.caption(outcomes)
-
-
-def expected_performance() -> None:
-    st.subheader("Which versions sold more in practice?")
-    st.info(
-        "Exact split changes and outcomes by assigned version are awaiting serving split records."
+    st.caption(
+        f"{health['organizer_fallbacks']:,} organizer fallbacks out of "
+        f"{health['completed']:,} requests with feedback · {outcomes}"
     )
+
+
+def expected_performance(periods: list[SplitPeriod]) -> None:
+    st.subheader("Which versions sold more in practice?")
     st.caption(
         "Use periods with side-by-side traffic to compare versions under similar conditions. "
         "These figures are the organizers’ expected purchases, based on the simulator’s probabilities."
@@ -163,38 +216,35 @@ def expected_performance() -> None:
         st.info("No per-version results are available for this practice window.")
         return
     frame = pd.DataFrame(rows)
+    frame["Start"] = frame["bucket_start"].map(barcelona_chart_time)
+    frame["End"] = frame["bucket_end"].map(barcelona_chart_time)
     frame["Time (Barcelona)"] = frame["bucket_start"].map(chart_time)
     frame["Window end (Barcelona)"] = frame["bucket_end"].map(chart_time)
-    order = (
-        frame.sort_values("bucket_start")["Time (Barcelona)"].drop_duplicates().tolist()
+    axis = alt.X(
+        "Start:T",
+        scale=alt.Scale(type="utc", nice=False),
+        title="Barcelona time",
+        axis=alt.Axis(format="%H:%M"),
     )
     shading = (
         alt.Chart(frame[frame["overlap"]].drop_duplicates("bucket_start"))
         .mark_rect(color="#95b8da", opacity=0.24)
-        .encode(
-            x=alt.X(
-                "Time (Barcelona):O",
-                sort=order,
-                title=None,
-                axis=alt.Axis(labelAngle=-35),
-            )
-        )
+        .encode(x=axis, x2="End:T")
     )
     line = (
         alt.Chart(frame)
         .mark_line(point=True, invalid="break-paths-filter-domains")
         .encode(
-            x=alt.X(
-                "Time (Barcelona):O",
-                sort=order,
-                title=None,
-                axis=alt.Axis(labelAngle=-35),
-            ),
+            x=axis,
             y=alt.Y(
                 "expected_purchases_per_100:Q",
                 title="Expected purchases per 100 requests",
             ),
-            color=alt.Color("model_version:N", title="Model version"),
+            color=alt.Color(
+                "model_version:N",
+                title="Model version",
+                scale=alt.Scale(range=VERSION_COLORS),
+            ),
             tooltip=[
                 alt.Tooltip("Time (Barcelona):O", title="From"),
                 alt.Tooltip("Window end (Barcelona):O", title="To"),
@@ -208,8 +258,126 @@ def expected_performance() -> None:
             ],
         )
     )
-    st.altair_chart((shading + line).properties(height=330), width="stretch")
-    st.caption("Shaded windows show overlapping traffic reported by the leaderboard.")
+    chart = shading + line
+    changes = []
+    previous = None
+    for period in periods:
+        if (
+            period.configuration != previous
+            and frame["bucket_start"].min() <= period.start < frame["bucket_end"].max()
+        ):
+            changes.append(
+                {
+                    "Start": barcelona_chart_time(period.start),
+                    "Change at": local_time(period.start.timestamp()),
+                    "Split": period.configuration,
+                    "Source": "Serving heartbeat (approximate)"
+                    if period.source == "heartbeat"
+                    else "Team log",
+                }
+            )
+        previous = period.configuration
+    if changes:
+        chart += (
+            alt.Chart(pd.DataFrame(changes))
+            .mark_rule(color="#657589", strokeDash=[5, 4], strokeWidth=1.3)
+            .encode(x=axis, tooltip=["Change at:N", "Split:N", "Source:N"])
+        )
+    st.altair_chart(
+        chart_style(chart.properties(height=330)), theme=None, width="stretch"
+    )
+    st.caption(
+        "Shaded windows show overlapping traffic. Dashed lines mark recorded split changes."
+        if changes
+        else "Shaded windows show overlapping traffic. No split changes are recorded in this range."
+    )
+
+
+def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
+    st.subheader("How often did a backup answer?")
+    tests = [period for period in reversed(periods) if len(period.shares) > 1]
+    if not tests:
+        st.info("No recorded side-by-side test is available yet.")
+        return
+    chosen = st.selectbox(
+        "Compare versions from",
+        [period.start for period in tests],
+        format_func=lambda key: key.astimezone(BARCELONA).strftime("%d %b %H:%M:%S %Z"),
+    )
+    period = next(period for period in tests if period.start == chosen)
+    snapshot = fetch_latest(
+        f"split-results:{chosen.isoformat()}", lambda: (period, split_stats(period))
+    )
+    if snapshot is None:
+        return
+    period, stats = snapshot
+    source = (
+        "Serving records · approximate boundaries"
+        if period.source == "heartbeat"
+        else "Recorded by the team"
+    )
+    st.caption(
+        f"{period.start.astimezone(BARCELONA):%d %b %H:%M:%S} to "
+        f"{period.end.astimezone(BARCELONA):%d %b %H:%M:%S %Z} · {source}"
+    )
+    if end - periods[-1].end > timedelta(seconds=10):
+        st.caption(
+            "The table covers the recorded test period. More recent traffic awaits split records."
+        )
+    if period.out:
+        st.caption(
+            f"Covered by the main version during this period: {', '.join(period.out)}"
+        )
+    st.caption(
+        "Confirmed team backup counts requests where our main version covered a challenger. "
+        "Organizer fallback means the organizers showed their own backup list. "
+        "Rates use assigned requests with feedback. Pending requests are counted separately."
+    )
+    backups = []
+    sales = []
+    shares = period.shares
+    for row in stats.rows:
+        complete = row.completed
+        backups.append(
+            {
+                "Assigned version": row.version,
+                "Planned share": rate(shares[row.version], sum(shares.values())),
+                "Assigned": row.assigned,
+                "Pending": row.pending,
+                "Unclear": row.unknown_actual,
+                "Team backup": f"{row.champion_backups:,} ({rate(row.champion_backups, complete)})"
+                if complete
+                else "—",
+                "Organizer fallback": f"{row.organizer_fallbacks:,} ({rate(row.organizer_fallbacks, complete)})"
+                if complete
+                else "—",
+            }
+        )
+        sales.append(
+            {
+                "Assigned version": row.version,
+                "With feedback": complete,
+                "Purchases / 100": f"{100 * row.purchases / complete:.2f}"
+                if complete
+                else "—",
+                "Revenue / request": f"€{row.revenue_eur / complete:.3f}"
+                if complete
+                else "—",
+            }
+        )
+    backups_tab, sales_tab = st.tabs(["Backup use", "Purchase results"])
+    with backups_tab:
+        st.dataframe(backups, hide_index=True, width="stretch")
+        unknown = sum(row.unknown_actual for row in stats.rows)
+        if unknown:
+            st.caption(
+                f"{unknown:,} requests lack a confirmed answering version and could include more team backups."
+            )
+    with sales_tab:
+        st.dataframe(sales, hide_index=True, width="stretch")
+        st.caption(
+            "Purchase results include what happened after either backup was shown."
+        )
 
 
 def shopper_groups(end: datetime) -> None:
@@ -228,7 +396,9 @@ def shopper_groups(end: datetime) -> None:
                 "Requests": row["requests"],
                 "Awaiting feedback": row["pending"],
                 "Purchases": row["purchases"],
-                "Purchases per 100 requests": rate(row["purchases"], row["completed"]),
+                "Purchases per 100 with feedback": rate(
+                    row["purchases"], row["completed"]
+                ),
             }
             for row in groups
         ],
@@ -285,12 +455,12 @@ def store_trends(end: datetime) -> None:
             y=alt.Y("Category:N", sort=[row["category"] for row in ranked], title=None),
             yOffset="Window:N",
             color=alt.Color(
-                "Window:N", scale=alt.Scale(range=["#117d72", "#92a8bf"]), title=None
+                "Window:N", scale=alt.Scale(range=[TEAL, "#a8bac9"]), title=None
             ),
             tooltip=["Category:N", "Window:N", "Events:Q"],
         )
     )
-    st.altair_chart(comparison, width="stretch")
+    st.altair_chart(chart_style(comparison), theme=None, width="stretch")
 
 
 def jury_score() -> None:
@@ -303,7 +473,7 @@ def jury_score() -> None:
             "The official team score will appear here once the organizers publish it."
         )
     else:
-        st.metric("Official team score", f"{score:.2f} / 100")
+        st.metric("Official team score", f"{score:.2f} / 100", border=True)
 
 
 def jury_view() -> None:
@@ -323,7 +493,8 @@ def jury_view() -> None:
         jury_score()
         return
     # Follow the final automatically when it first has feedback, unless the presenter picked a period.
-    chosen_period = st.selectbox("Round", ["Show latest round", *available])
+    period_column, version_column = st.columns([1, 2])
+    chosen_period = period_column.selectbox("Round", ["Show latest round", *available])
     period: JuryPeriod = periods[
         available[-1] if chosen_period == "Show latest round" else chosen_period
     ]
@@ -336,7 +507,7 @@ def jury_view() -> None:
         st.info("No team recommendations have a confirmed display in this round yet.")
         jury_score()
         return
-    version = st.selectbox(
+    version = version_column.selectbox(
         "Model version",
         versions,
         index=None,
@@ -349,11 +520,12 @@ def jury_view() -> None:
         purchases = sum(row.purchases for row in rows)
         revenue = sum(row.revenue_eur for row in rows)
         columns = st.columns(3)
-        columns[0].metric("Purchases", f"{purchases:,}")
-        columns[1].metric("Sales", f"€{revenue:,.2f}")
+        columns[0].metric("Purchases", f"{purchases:,}", border=True)
+        columns[1].metric("Sales", f"€{revenue:,.2f}", border=True)
         columns[2].metric(
             "Purchases per 100 times shown",
             f"{100 * purchases / displays:.2f}" if displays else "—",
+            border=True,
         )
         status = (
             "Simulator results so far"
@@ -373,7 +545,7 @@ def jury_view() -> None:
         )
         chart = (
             alt.Chart(frame)
-            .mark_bar(color="#117d72")
+            .mark_bar(color=TEAL, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
             .encode(
                 x=alt.X(
                     "Time (Barcelona):O",
@@ -385,13 +557,16 @@ def jury_view() -> None:
                 tooltip=["Time (Barcelona):O", "Purchases:Q"],
             )
         )
-        st.altair_chart(chart.properties(height=285), width="stretch")
+        st.altair_chart(
+            chart_style(chart.properties(height=285)), theme=None, width="stretch"
+        )
         st.caption(
             "Shows when shoppers bought after seeing this version’s recommendations."
         )
     jury_score()
 
 
+st.sidebar.title("Tati")
 view = st.sidebar.radio("Dashboard view", ["Team", "Jury"])
 try:
     RawTree.from_env()
@@ -405,16 +580,22 @@ except KeyError:
 @st.fragment(run_every="30s")
 def show_view() -> None:
     if view == "Jury":
-        jury_view()
+        with st.container(key="dashboard-panel-jury", border=True):
+            jury_view()
         return
     st.title("Recommendation monitor")
     end = clock_slot()
-    serving_health(end)
-    st.divider()
-    expected_performance()
-    st.divider()
-    shopper_groups(end)
-    store_trends(end)
+    with st.container(key="dashboard-panel-health", border=True):
+        serving_health(end)
+    periods = fetch_latest("split_history", lambda: split_history(end)) or []
+    with st.container(key="dashboard-panel-splits", border=True):
+        split_reliability(periods, end)
+    with st.container(key="dashboard-panel-performance", border=True):
+        expected_performance(periods)
+    with st.container(key="dashboard-panel-cold", border=True):
+        shopper_groups(end)
+    with st.container(key="dashboard-panel-trends", border=True):
+        store_trends(end)
 
 
 show_view()
