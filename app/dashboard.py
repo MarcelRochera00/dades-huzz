@@ -587,21 +587,25 @@ def jury_benchmark() -> None:
         with impact:
             st.metric("Higher expected purchase rate", f"+{PRACTICE_LIFT_PCT:.0f}%")
         with comparison:
+            st.caption("Expected purchases per 100 requests")
             bars = alt.Chart(frame).encode(
                 x=alt.X(
                     "Expected purchases per 100:Q",
-                    title="Expected purchases per 100 requests",
-                    scale=alt.Scale(domain=[0, 1.2]),
+                    axis=None,
+                    scale=alt.Scale(domain=[0, 1.25]),
                 ),
-                y=alt.Y("Recommendation:N", sort=labels, title=None),
+                y=alt.Y(
+                    "Recommendation:N",
+                    sort=labels,
+                    title=None,
+                    axis=alt.Axis(ticks=False, labelFontSize=12),
+                    scale=alt.Scale(paddingInner=0.4),
+                ),
             )
-            chart = bars.mark_bar(size=19, cornerRadiusEnd=3).encode(
+            chart = bars.mark_bar(size=10, cornerRadiusEnd=5).encode(
                 color=alt.Color(
                     "Recommendation:N",
-                    scale=alt.Scale(
-                        domain=labels,
-                        range=[version_style(arm.version).colour for arm in arms],
-                    ),
+                    scale=alt.Scale(domain=labels, range=[TEAL, "#8296a4"]),
                     legend=None,
                 ),
                 tooltip=[
@@ -609,11 +613,15 @@ def jury_benchmark() -> None:
                     alt.Tooltip("Expected purchases per 100:Q", format=".3f"),
                     alt.Tooltip("Requests:Q", format=","),
                 ],
-            ) + bars.mark_text(align="left", dx=6, color="#172735").encode(
-                text=alt.Text("Expected purchases per 100:Q", format=".3f")
-            )
+            ) + bars.mark_text(
+                align="left", dx=8, color="#172735", fontSize=13, fontWeight=600
+            ).encode(text=alt.Text("Expected purchases per 100:Q", format=".3f"))
             st.altair_chart(
-                chart_style(chart.properties(height=100)), theme=None, width="stretch"
+                chart_style(chart.properties(height=64)).configure(
+                    background="transparent"
+                ),
+                theme=None,
+                width="stretch",
             )
         st.markdown(
             "Destroyer used in-stock best sellers from the category the shopper last browsed. "
