@@ -105,3 +105,12 @@ def test_the_backfill_reads_every_kind_in_slices_and_freezes_after_each():
     assert len(rawtree.queries) == 3 * SHARDS
     assert all(f"% {SHARDS} = " in sql for sql in rawtree.queries)
     assert len(freezes) == 3 * SHARDS
+
+
+def test_add_returns_only_the_rows_it_had_not_counted_yet():
+    day = ShopperDay()
+    rows = [event("u1", "p_toy1", "view", 5)]
+    assert day.add(rows, CATEGORY) == rows
+    assert day.add(rows + [event("u1", "p_toy2", "purchase", 6)], CATEGORY) == [
+        event("u1", "p_toy2", "purchase", 6)
+    ]

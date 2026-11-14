@@ -34,6 +34,7 @@ from dades_huzz.serving.shoppers import (
     read_backfill,
     read_events_since,
 )
+from dades_huzz.serving.trends import SubcategoryHeat, read_heat_backfill
 from dades_huzz.serving.watchdog import mark_alive
 
 if TYPE_CHECKING:  # split.py imports Recommend from this module
@@ -122,13 +123,18 @@ class LiveState:
         shoppers_s: float = SHOPPERS_S,
         read_events: Callable[[int], list[Record]] | None = None,
         read_day: Callable[[int], tuple[list[Record], ...]] | None = None,
+        read_heat: Callable[[int], tuple[dict[str, int], list[Record]]] | None = None,
     ) -> None:
         self.rawtree = rawtree
         self._read_events = read_events or (
             lambda since: read_events_since(rawtree, since)
         )
         self._read_day = read_day or (lambda until: read_backfill(rawtree, until))
+        self._read_heat = read_heat or (
+            lambda until: read_heat_backfill(rawtree, until)
+        )
         self.shoppers: Snapshot = ({}, {}, {})
+        self.hot: dict[str, float] = {}
         self._shoppers_backfilled = False
         self.shoppers_ready = threading.Event()
         """Set once the shoppers' day is backfilled: from then on `State.shopper_*` covers the whole day."""
@@ -155,14 +161,32 @@ class LiveState:
             target=self._shoppers_forever, args=(shoppers_s,), daemon=True
         ).start()
 
+    def _purchases(self, rows: Iterable[Record]) -> list[tuple[int, str]]:
+        """(time, subcategory) of purchase rows whose product has a known subcategory."""
+        subcategory_of = self.state.subcategory.get
+        return [(row["t"], s) for row in rows if (s := subcategory_of(row["p"]))]
+
     def _shoppers_forever(self, every_s: float) -> None:
         """Own thread: backfill each shopper's day up to now (about 15 s of RawTree reads), then count only new
         events every `every_s`. Neither ever waits on, nor holds up, the stock refresh or the answers."""
         day = ShopperDay()
+        heat = SubcategoryHeat()
         start_ms = now_ms()
-        backfill_due = 0.0
-        backfilled = False
+        backfill_due = heat_due = 0.0
+        backfilled = heat_backfilled = False
         while True:
+            if not heat_backfilled and time.monotonic() >= heat_due:
+                try:  # cheap (about 1 s): first, so trends are watched from the start
+                    counts, recent = self._read_heat(start_ms)
+                    heat.add_day(counts)
+                    heat.add(self._purchases(recent), count_in_day=False)
+                    heat_backfilled = True
+                except Exception as e:  # noqa: BLE001  hot subcategories stay empty; try again later
+                    print(
+                        f"hot subcategories backfill failed, retrying in 60 s: {str(e)[:120]}",
+                        flush=True,
+                    )
+                    heat_due = time.monotonic() + 60
             if not backfilled and time.monotonic() >= backfill_due:
                 try:
                     day.add_backfill(*self._read_day(start_ms))
@@ -180,10 +204,15 @@ class LiveState:
                     backfill_due = time.monotonic() + 60
             try:
                 rows = self._read_events(day.since_ms(start_ms))
-                day.add(
+                new = day.add(
                     (row for row in rows if row["t"] >= start_ms),
                     self.state.category.get,
                 )
+                heat.add(self._purchases(row for row in new if row["e"] == "purchase"))
+                if (
+                    heat_backfilled
+                ):  # without the day's counts every subcategory would look new, so hot
+                    self.hot = heat.hot(now_ms())
                 self.shoppers = day.snapshot()
                 self._shoppers_backfilled = backfilled
             except Exception as e:  # noqa: BLE001  keep the last snapshot
@@ -252,6 +281,7 @@ class LiveState:
             shopper_categories=categories,
             shopper_carted=carted,
             shopper_viewed=viewed,
+            hot_subcategories=self.hot,
         )
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
