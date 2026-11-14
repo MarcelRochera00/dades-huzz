@@ -54,6 +54,9 @@ def recommend(request: Request, state: State) -> list[str]:
 - `State`: everything the serving loop keeps fresh, read-only for `recommend`: the current catalogue
   (active, in stock, prices), the fallback list (best sellers in stock), live trends, and the precomputed
   signals. Lane A owns its shape; a lane that needs a new field adds it in a PR that lane A confirms.
+  Live fields lane C fills, refreshed from `shop.events` over the last 15 minutes: `trend` (product to
+  weight: purchase 4, add-to-cart 3, view 1) and `recent_purchases` (shopper to the products they bought
+  in that window).
 - **Precomputed signals** (co-views, similarities, profiles) are built offline and stored as files in
   `outputs/` or rows in `team_02.scratch`; the serving loop loads them into `State`.
 - **`model_version`**: every answer carries the version string of the policy that produced it, so

@@ -1,13 +1,17 @@
-"""Signals for ranking (lane B), built in RawTree SQL: from the history, loaded once at start, and the live
-category ranking, rebuilt every minute from the purchases since the switch."""
+"""Signals for ranking.
+
+Lane B precomputes history signals in RawTree SQL and loads them once at start, and rebuilds the live
+category ranking every minute from the purchases since the switch.
+Lane C scores the live stream: a trend is the weighted count of `shop.events` over the last 15 minutes.
+"""
 
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from dades_huzz.data import RawTree
+from dades_huzz.data import RawTree, Record
 
 CATEGORY_RANKING = """
 SELECT e.product_id AS product_id, c.category AS category, count() AS n
@@ -40,6 +44,35 @@ ORDER BY n DESC, product_id DESC"""
 """The all-time best sellers as they stood at `until`: the baseline ranking without looking ahead."""
 
 
+SHOPPER_PROFILES = """
+SELECT e.user_id AS user_id, c.category AS category,
+       sum(multiIf(e.event_type = 'purchase', 5, e.event_type = 'add_to_cart', 2, 1)) AS weight
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id, event_type::String AS event_type
+    FROM shop.history_events
+    WHERE ts::DateTime64(3) < '{until}'
+) AS e
+INNER JOIN ({catalog}) AS c ON e.product_id = c.product_id
+GROUP BY user_id, category"""
+"""Each shopper's activity per category before `until`: a purchase counts 5, an add-to-cart 2, a view 1."""
+
+
+SHOPPER_PURCHASES = """
+SELECT user_id, groupUniqArray(product_id) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.history_events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
+GROUP BY user_id"""
+"""Every product each shopper bought before `until`: in the history, a snapshot from before the event, and live
+in shop.events, which keeps growing through Sunday (organisers, Sat 17:30)."""
+
+
 @dataclass(frozen=True)
 class CategorySignals:
     """What Tati Destroyer needs: each product's category and each category's best sellers."""
@@ -62,6 +95,64 @@ def category_signals(
     ):
         ranked.setdefault(row["category"], []).append(row["product_id"])
     return CategorySignals(category_of=category_of, ranked_by_category=ranked)
+
+
+TREND_WINDOW = timedelta(minutes=15)
+"""How far back a trend looks. The window itself is the detector for this slice."""
+
+TREND_WEIGHT = {"purchase": 4, "add_to_cart": 3, "view": 1}
+"""What one organic event adds to a product's trend score."""
+
+
+def _as_utc(ts: datetime | str) -> datetime:
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+    text = str(ts).replace("T", " ").removesuffix("Z")
+    if "." in text:
+        parsed = datetime.strptime(text[:26], "%Y-%m-%d %H:%M:%S.%f")
+    else:
+        parsed = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+    return parsed.replace(tzinfo=UTC)
+
+
+def trend_scores(events: Iterable[Record], now: datetime) -> dict[str, int]:
+    """Each product's weight in `shop.events` over the last 15 minutes, ending at `now`.
+
+    A purchase counts 4, an add-to-cart 3 and a view 1. An event at or before `now` minus 15 minutes,
+    or after `now`, does not count.
+    """
+    end = _as_utc(now)
+    start = end - TREND_WINDOW
+    scores: dict[str, int] = {}
+    for event in events:
+        when = _as_utc(event["ts"])
+        if when <= start or when > end:
+            continue
+        weight = TREND_WEIGHT.get(str(event["event_type"]))
+        if weight is None:
+            continue
+        product_id = str(event["product_id"])
+        scores[product_id] = scores.get(product_id, 0) + weight
+    return scores
+
+
+def purchases_in_window(
+    events: Iterable[Record], now: datetime
+) -> dict[str, frozenset[str]]:
+    """Each shopper's organic purchases in the last 15 minutes."""
+    end = _as_utc(now)
+    start = end - TREND_WINDOW
+    bought: dict[str, set[str]] = {}
+    for event in events:
+        if str(event.get("event_type")) != "purchase":
+            continue
+        when = _as_utc(event["ts"])
+        if when <= start or when > end:
+            continue
+        bought.setdefault(str(event.get("user_id")), set()).add(
+            str(event["product_id"])
+        )
+    return {user_id: frozenset(products) for user_id, products in bought.items()}
 
 
 def best_sellers_until(rawtree: RawTree, until: str) -> list[str]:
@@ -292,3 +383,28 @@ def live_category_signals(
     """The live category ranking for any version, passed like `category_signals`:
     `category_best_sellers(**vars(live_category_signals(rawtree)), ...)`."""
     return LiveCategoryRanking(rawtree, prior_weight=prior_weight).start().signals()
+
+
+def shopper_profiles(rawtree: RawTree, until: str) -> dict[str, dict[str, float]]:
+    """Tati Apocalypse's signal: each shopper's share of their history per category, from events before
+    `until` (UTC, 'YYYY-MM-DD HH:MM:SS'). About 60,000 shoppers x 10 categories, in about 3 s."""
+    weights: dict[str, dict[str, float]] = {}
+    for row in rawtree.query(
+        SHOPPER_PROFILES.format(until=until, catalog=CATALOG_CATEGORY), timeout=120
+    ):
+        weights.setdefault(row["user_id"], {})[row["category"]] = float(row["weight"])
+    return {
+        user: {
+            category: weight / sum(categories.values())
+            for category, weight in categories.items()
+        }
+        for user, categories in weights.items()
+    }
+
+
+def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]:
+    """What each shopper already bought before `until`: the products not to show them again."""
+    return {
+        row["user_id"]: frozenset(row["products"])
+        for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
+    }

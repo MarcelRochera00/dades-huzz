@@ -51,6 +51,13 @@ can be compared between versions. _Avoid_: model, run.
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
+**Trend**: the live ordering of products by recent organic activity in `shop.events` (the last 15
+minutes: a purchase weighs 4, an add-to-cart 3, a view 1). _Avoid_: popularity, which means all-time
+sales.
+
+**Recent purchase**: a product the shopper bought organically within the trend window. An answer
+leaves it out.
+
 **Serving loop**: the process that pulls new requests, keeps the state fresh and pushes answers. Only
 one runs for the team at a time. _Avoid_: bot, script.
 
@@ -78,10 +85,21 @@ reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request
 _Avoid_: failover, leader election.
 
 **Tati**: our recommender as a product. Each model version that beats the live champion takes the next
-rank: Tati (`tati-0-bestsellers`, the baseline), Tati Destroyer, Tati Terminator, Tati Ultimatum; the
-model version is `tati-<rank>-<idea>`, e.g. `tati-destroyer-category`. A challenger carries the rank it
-is aiming for from the start; it holds that rank only once it beats the champion live. _Avoid_: the bot,
-the model.
+rank: Tati (`tati-0-bestsellers`, the baseline), Tati Destroyer, Tati Terminator, Tati Ultimatum, Tati
+Apocalypse, Tati Armageddon, Tati Omega; the model version is `tati-<rank>-<idea>`, e.g.
+`tati-destroyer-category`. A challenger carries the rank it is aiming for from the start; it holds that
+rank only once it beats the champion live. Tati versions rank products by rules. _Avoid_: the bot, the
+model.
+
+**Lauri**: our second recommender family, for versions that learn the chance of a purchase from the old
+carousel log instead of following rules. Its ranks, in order: Lauri Titan, Lauri Colossus, Lauri
+Singularity; the model version is `lauri-<rank>-<idea>`, and ranks are won as for Tati.
+
+**Returning shopper**: a shopper who is not new (`is_new_user` false) and so has past activity in the
+store's history. _Avoid_: old user, known user.
+
+**Shopper profile**: a returning shopper's share of their past activity in each category (purchases count
+more than add-to-carts, which count more than views). _Avoid_: user embedding, user vector.
 
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.

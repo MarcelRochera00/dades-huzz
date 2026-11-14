@@ -36,7 +36,7 @@ Each chart will state the decision it supports.
 | --- | --- |
 | Which version should we run? | Compare purchases per 100 assigned requests, euros per assigned request, request counts, and a confidence interval for the difference. Default to the full current A/B test. Start a new comparison period when the versions or their shares change. |
 | How has each version performed over time? | Plot expected purchases per 100 requests from the organizers' public practice leaderboard by version. Mark split changes and highlight periods when versions ran side by side. Show the request count behind each point and leave gaps when a version has no reported traffic. |
-| Does the recommender need attention? | Over the last 30 minutes, show the share of valid answers within three seconds, typical and slower response times, and counts of missing, late, and invalid answers. |
+| Does the recommender need attention? | Over the last 30 minutes, show the share of valid answers within three seconds, typical and slower response times, the organizer fallback rate, and counts of missing, late, and invalid answers. For a recorded side-by-side test, show how many of each version's assigned requests used the team's backup version or the organizers' fallback, with a separate rate for each. |
 | Which cold requests need better recommendations? | Show request counts and purchase rates for new shoppers only, shoppers who recently viewed a newly added product only, and requests that meet both conditions. |
 | What is changing in the store? | Compare recent product or category views, add-to-carts, and purchases with an earlier period of the same length. |
 
@@ -60,9 +60,11 @@ probabilities and other scoring components.
 ### Data and refresh
 
 Match RawTree requests, submissions, and feedback by request ID. Use the version named in the
-submission and the confirmed display for the Jury view. For the Team view, agree with Lane A on
-how to recover the original assignment, the version shares, and when each split took effect.
-That record also supports marking split changes on the practice chart.
+submission and the confirmed display for the Jury view. For the Team view, recover the original
+assignment from the request ID and the version shares in effect. Use Lane A's active serving
+records to find split changes, and use its documented practice history for earlier periods.
+Show only periods with a known split and label approximate times. Fallback rates use assigned
+requests with feedback. Show team-served requests with unknown version attribution separately.
 
 Show **Feedback through [time]** and **Results so far** while feedback is arriving. Count requests
 awaiting feedback as pending in the Team view. Until their outcomes arrive, exclude them from

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from dades_huzz.data import State
 from dades_huzz.features import (
     FINAL_ROUND_START,
@@ -7,6 +9,8 @@ from dades_huzz.features import (
     category_signals,
     live_sales_since_ms,
     pick_prior_weight,
+    purchases_in_window,
+    trend_scores,
     utc_ms,
 )
 from dades_huzz.model import category_best_sellers
@@ -26,6 +30,52 @@ class FakeRawTree:
                 {"product_id": "p_new", "category": "Fashion"},
             ]
         return []
+
+
+def test_trend_scores_weight_the_last_fifteen_minutes():
+    # purchase 4, add_to_cart 3, view 1; an event just outside the window does not count
+    now = datetime(2026, 11, 14, 13, 33, tzinfo=None)
+    events = [
+        {"ts": "2026-11-14 13:17:00", "event_type": "view", "product_id": "p_a"},
+        {"ts": "2026-11-14 13:20:00", "event_type": "purchase", "product_id": "p_a"},
+        {"ts": "2026-11-14 13:25:00", "event_type": "view", "product_id": "p_a"},
+        {"ts": "2026-11-14 13:30:00", "event_type": "add_to_cart", "product_id": "p_b"},
+    ]
+    assert trend_scores(events, now) == {"p_a": 5, "p_b": 3}
+
+
+def test_purchases_in_window_are_each_shoppers_purchases_in_the_same_fifteen_minutes():
+    now = datetime(2026, 11, 14, 13, 33)
+    events = [
+        {
+            "ts": "2026-11-14 13:30:00",
+            "event_type": "purchase",
+            "product_id": "p_a",
+            "user_id": "u1",
+        },
+        {
+            "ts": "2026-11-14 13:30:00",
+            "event_type": "purchase",
+            "product_id": "p_b",
+            "user_id": "u2",
+        },
+        {
+            "ts": "2026-11-14 13:31:00",
+            "event_type": "view",
+            "product_id": "p_c",
+            "user_id": "u1",
+        },
+        {
+            "ts": "2026-11-14 13:00:00",
+            "event_type": "purchase",
+            "product_id": "p_old",
+            "user_id": "u1",
+        },
+    ]
+    assert purchases_in_window(events, now) == {
+        "u1": frozenset({"p_a"}),
+        "u2": frozenset({"p_b"}),
+    }
 
 
 def test_category_signals_know_the_category_of_products_added_during_the_event():
@@ -147,3 +197,39 @@ def test_a_version_answers_from_the_live_ranking():
     )
     answer = recommend({"recent_views": [{"product_id": "new_1"}]}, state)
     assert answer[:3] == ["new_2", "new_1", "p_00"]
+
+
+class ProfileRawTree:
+    """Answers the profile query with per-category weights for two shoppers."""
+
+    def query(self, sql, timeout=10):
+        assert "history_events" in sql and "2026-11-07 07:00:00" in sql
+        return [
+            {"user_id": "u_1", "category": "Toys", "weight": 30},
+            {"user_id": "u_1", "category": "Books", "weight": 10},
+            {"user_id": "u_2", "category": "Pets", "weight": 5},
+        ]
+
+
+def test_shopper_profiles_are_each_shoppers_share_of_weight_per_category():
+    from dades_huzz.features import shopper_profiles
+
+    profiles = shopper_profiles(ProfileRawTree(), until="2026-11-07 07:00:00")
+    assert profiles == {"u_1": {"Toys": 0.75, "Books": 0.25}, "u_2": {"Pets": 1.0}}
+
+
+class PurchasesRawTree:
+    def query(self, sql, timeout=10):
+        # the history is a snapshot from before the event; live purchases are in shop.events
+        assert (
+            "purchase" in sql and "shop.history_events" in sql and "shop.events" in sql
+        )
+        return [{"user_id": "u_1", "products": ["p_a", "p_b"]}]
+
+
+def test_shopper_purchases_are_each_shoppers_bought_products():
+    from dades_huzz.features import shopper_purchases
+
+    assert shopper_purchases(PurchasesRawTree(), until="2026-11-14 12:00:00") == {
+        "u_1": frozenset({"p_a", "p_b"})
+    }
