@@ -29,8 +29,8 @@ from dades_huzz.features import purchases_in_window, trend_scores
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.watchdog import mark_alive
 
-if TYPE_CHECKING:  # versions.py imports the models, which import this module
-    from dades_huzz.serving.versions import Split
+if TYPE_CHECKING:  # split.py imports Recommend from this module
+    from dades_huzz.serving.split import Split
 
 Recommend = Callable[[Record, State], list[str]]
 """`recommend(request, state) -> list[str]`, the shared signature in docs/contracts.md."""

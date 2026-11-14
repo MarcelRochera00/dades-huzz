@@ -14,9 +14,7 @@ from dades_huzz.features import (
     LauriTrainingRows,
     lauri_features,
 )
-from dades_huzz.serving.loop import ANSWER_SIZE
-
-Recommend = Callable[[Record, State], list[str]]
+from dades_huzz.serving.loop import ANSWER_SIZE, Recommend
 
 COLD_VIEWED_MAX = 3
 """A cold answer opens at most this many category blocks with the product viewed in them."""

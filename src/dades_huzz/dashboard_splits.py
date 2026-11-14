@@ -9,7 +9,7 @@ from dades_huzz.dashboard_jury import FINAL_END_MS
 from dades_huzz.data import RawTree
 from dades_huzz.serving.handover import SILENT_MS
 from dades_huzz.serving.report import conversion_interval_pct
-from dades_huzz.serving.versions import parse_split
+from dades_huzz.serving.split import parse_split
 
 # Marcel verified these UTC boundaries from submissions/feedback in the Lane D discussion:
 # https://github.com/ProGabo/dades-huzz/issues/9#issuecomment-6880413427

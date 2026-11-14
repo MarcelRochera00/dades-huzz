@@ -26,6 +26,8 @@ STARTUP_GRACE_S = 120.0
 down), it gets this long between marks instead of HANG_AFTER_S."""
 STABLE_AFTER_S = 300.0
 """A loop that ran this long before failing is not failing quickly: the next restart waits the minimum."""
+STALE_ALIVE_S = 3600.0
+"""An alive file untouched for this long belongs to a watchdog that was killed: removed at the next start."""
 
 
 def restart_reason(
@@ -272,6 +274,48 @@ def supervise(
             if max_restarts is not None and restarts >= max_restarts:
                 return restarts
             time.sleep(wait_s)
+
+
+def remove_stale_alive_files(
+    folder: Path, older_than_s: float = STALE_ALIVE_S
+) -> list[Path]:
+    """Remove `loop_alive_*` files nobody has touched for `older_than_s`: a killed watchdog cannot remove its own."""
+    removed = []
+    for path in sorted(folder.glob("loop_alive_*")):
+        try:
+            if time.time() - path.stat().st_mtime > older_than_s:
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            pass
+    return removed
+
+
+def run_supervised(script: str, argv: list[str], log_path: Path) -> None:
+    """Run `script argv --no-watchdog` as the watchdog's child, keep the laptop awake, and restart the child when
+    it exits or hangs, until Ctrl-C. The child's alive file is `outputs/loop_alive_<this pid>`: one per watchdog,
+    so two watchdogs on one laptop never read each other's loop as alive."""
+    folder = log_path.parent
+    folder.mkdir(parents=True, exist_ok=True)
+    remove_stale_alive_files(folder)
+    alive_path = folder / f"loop_alive_{os.getpid()}"
+    child = [
+        sys.executable,
+        "-u",
+        script,
+        *argv,
+        "--no-watchdog",
+        "--alive-file",
+        str(alive_path),
+    ]
+    with KeepAwake("dades-huzz serving loop") as awake:
+        print(f"watchdog: keep-awake: {awake.how}", flush=True)
+        try:
+            supervise(child, alive_path, log_path)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            alive_path.unlink(missing_ok=True)
 
 
 def self_check() -> bool:

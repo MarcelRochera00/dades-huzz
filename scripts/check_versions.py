@@ -12,11 +12,8 @@ import time
 
 from dades_huzz.data import REQUESTS_SINCE, RawTree, as_request
 from dades_huzz.serving.loop import LiveState
-from dades_huzz.serving.versions import (
-    VERSIONS,
-    main_thread_wait_ms,
-    measure_version,
-)
+from dades_huzz.serving.split import main_thread_wait_ms, measure_version
+from dades_huzz.serving.versions import VERSIONS
 
 REFERENCE = "tati-terminator-category-viewed"
 
