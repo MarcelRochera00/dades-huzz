@@ -241,6 +241,10 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         rawtree, "lauri-titan-als", taste=True
     ),
     "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
+    # Omni's weights alone, 30 deep, without tournament 4's cold, hot and pool-100 layers (which lost live, #60).
+    "lauri-omni-plain": lambda rawtree: _lauri(
+        rawtree, "lauri-omni", day=True, history_carts=True
+    ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 

@@ -106,6 +106,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#7209b7",
         "Marcel's combined model: Titan max on weights that also read the shopper's day (Colossus + history carts).",
     ),
+    "lauri-omni-plain": VersionStyle(
+        "#b5179e",
+        "Lauri Omni's weights alone, 30 deep: no cold rule, no trending subcategory, no pool 100.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 
