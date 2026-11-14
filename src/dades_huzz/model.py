@@ -1,7 +1,7 @@
 """Recommenders: each is a `recommend(request, state) -> list[str]` function (docs/contracts.md)."""
 
 from dades_huzz.data import Record, State
-from dades_huzz.serving import ANSWER_SIZE
+from dades_huzz.serving.loop import ANSWER_SIZE
 
 
 def best_sellers(request: Record, state: State) -> list[str]:

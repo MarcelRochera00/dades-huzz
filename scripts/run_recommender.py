@@ -2,7 +2,8 @@
 
     uv run python scripts/run_recommender.py
 
-Never run two of these at once: each request would get two answers.
+Run it on as many laptops as you like: one answers, the others wait and take over if it stops (handover).
+With --no-handover it always answers: then never run two at once, each request would get two answers.
 """
 
 import argparse
@@ -21,8 +22,19 @@ def main() -> None:
         default=Path("outputs/serve_log.jsonl"),
         help="one JSON line per answer",
     )
+    parser.add_argument(
+        "--no-handover",
+        action="store_true",
+        help="always answer: no heartbeat, no waiting for another loop (only if you are sure no other runs)",
+    )
     args = parser.parse_args()
-    serve(RawTree.from_env(), best_sellers, "best-sellers", log_path=args.log)
+    serve(
+        RawTree.from_env(),
+        best_sellers,
+        "best-sellers",
+        log_path=args.log,
+        handover=not args.no_handover,
+    )
 
 
 if __name__ == "__main__":

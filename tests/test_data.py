@@ -113,3 +113,12 @@ def test_cursor_skips_requests_too_old_to_answer_in_time():
 def test_cursor_polls_every_request_still_answerable_in_time():
     cursor = RequestCursor(max_age_ms=2700)
     assert cursor.since_ms(now_ms=10_000) == 7300
+
+
+def test_cursor_never_returns_a_request_another_loop_already_answered():
+    cursor = RequestCursor(max_age_ms=2700)
+    cursor.mark_answered(["r1"], now_ms=1100)
+    assert [
+        r["request_id"]
+        for r in cursor.accept([req("r1", 1000), req("r2", 1050)], now_ms=1200)
+    ] == ["r2"]

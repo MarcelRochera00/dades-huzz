@@ -92,6 +92,11 @@ class RequestCursor:
     def since_ms(self, now_ms: int) -> int:
         return now_ms - self.max_age_ms
 
+    def mark_answered(self, request_ids: Iterable[str], now_ms: int) -> None:
+        """Requests another loop already answered: never answer them again."""
+        for request_id in request_ids:
+            self._seen.setdefault(request_id, now_ms)
+
     def accept(self, rows: Iterable[Record], now_ms: int) -> list[Record]:
         fresh = []
         for row in sorted(rows, key=lambda r: r["ts_ms"]):
@@ -123,6 +128,20 @@ CATALOG_UPDATES = """
 SELECT product_id::String AS product_id, change::String AS change, toString(ts) AS ts,
        price_eur::Float64 AS price_eur, is_active::Bool AS is_active
 FROM shop.catalog_updates"""
+
+HEARTBEATS_SINCE = """
+SELECT loop_id::String AS loop_id, host::String AS host, role::String AS role,
+       started_ms::Int64 AS started_ms, ts_ms::Int64 AS ts_ms
+FROM {team}.scratch
+WHERE kind::String = 'heartbeat' AND ts_ms::Int64 > {since_ms}"""
+
+ANSWERED_SINCE = """
+SELECT DISTINCT s.request_id::String AS request_id
+FROM {team}.submissions AS s
+INNER JOIN (SELECT request_id::String AS request_id FROM shop.requests
+            WHERE ts::DateTime64(3) > fromUnixTimestamp64Milli(toInt64({since_ms}))) AS r
+    ON r.request_id = s.request_id::String"""
+"""Requests since `since_ms` that some loop of ours already answered."""
 
 BEST_SELLERS = """
 SELECT product_id::String AS product_id, count() AS n
@@ -189,6 +208,22 @@ class RawTree:
 
     def catalog_updates(self) -> list[Record]:
         return self.query(CATALOG_UPDATES, timeout=5)
+
+    def heartbeats_since(self, since_ms: int) -> list[Record]:
+        return self.query(
+            HEARTBEATS_SINCE.format(team=self.team, since_ms=int(since_ms)), timeout=2
+        )
+
+    def answered_since(self, since_ms: int) -> set[str]:
+        rows = self.query(
+            ANSWERED_SINCE.format(team=self.team, since_ms=int(since_ms)), timeout=2
+        )
+        return {row["request_id"] for row in rows}
+
+    def server_now_ms(self) -> int:
+        return int(
+            self.query("SELECT toUnixTimestamp64Milli(now64(3)) AS now_ms")[0]["now_ms"]
+        )
 
     def best_sellers(self) -> list[str]:
         return [row["product_id"] for row in self.query(BEST_SELLERS, timeout=30)]

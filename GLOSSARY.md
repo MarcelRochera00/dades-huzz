@@ -64,3 +64,7 @@ reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request
 
 **Unavailable product**: a product that would make an answer invalid: inactive, or whose latest stock change is
 `out_of_stock`.
+
+**Handover**: how the serving loop moves between laptops: every loop sends a heartbeat, one is *active*
+(answers) and the others are *standby* (wait), and a standby takes over when the active one goes silent.
+_Avoid_: failover, leader election.
