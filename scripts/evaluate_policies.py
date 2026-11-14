@@ -18,12 +18,12 @@ from dades_huzz.evaluation import (
     paired_difference,
     slate_ips_by_request,
 )
-from dades_huzz.features import best_sellers_until, category_signals
+from dades_huzz.features import best_sellers_until, category_signals, shopper_profiles
 from dades_huzz.model import best_sellers, category_best_sellers
 
 CUT = "2026-11-07 07:00:00"
 CAPS = (20, 50, 100)
-CHAMPION = "tati-destroyer-category"
+CHAMPION = "tati-terminator-category-viewed"
 """The policy every later one must beat to take its place."""
 
 
@@ -47,6 +47,7 @@ def main() -> None:
     rawtree = RawTree.from_env()
     ranking = best_sellers_until(rawtree, args.cut)
     signals = category_signals(rawtree, args.cut)
+    profiles = shopper_profiles(rawtree, args.cut)
     cases = history_cases(rawtree, args.cut, every=10, parts=range(args.sample))
     # the history catalogue has no stock changes: every product the log knows is available
     available = frozenset(signals.category_of) | frozenset(ranking)
@@ -71,6 +72,20 @@ def main() -> None:
             signals.ranked_by_category,
             keep_viewed=True,
             viewed_first=3,
+        ),
+        "tati-apocalypse-profile": category_best_sellers(
+            signals.category_of,
+            signals.ranked_by_category,
+            keep_viewed=True,
+            profiles=profiles,
+        ),
+        # live only, like Ultimatum: it moves viewed products the old carousel placed elsewhere
+        "tati-armageddon-viewed-profile": category_best_sellers(
+            signals.category_of,
+            signals.ranked_by_category,
+            keep_viewed=True,
+            viewed_first=3,
+            profiles=profiles,
         ),
     }
     reports = {

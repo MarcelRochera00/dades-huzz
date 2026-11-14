@@ -199,6 +199,24 @@ def test_a_returning_shopper_who_views_a_new_product_is_cold_too():
     assert recommend(request, state)[:3] == ["n_new", "n_1", "hot"]
 
 
+def test_a_cold_answer_leaves_out_what_the_shopper_bought_in_the_history():
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={},
+        keep_viewed=True,
+        viewed_first=3,
+        bought={"u1": {"hot"}},
+        cold_start=True,
+    )
+    state = _cold_state({"hot": 9, "warm": 4})
+    answer = recommend(
+        {"user_id": "u1", "is_new_user": True, "recent_views": []}, state
+    )
+    assert answer[:2] == ["warm", "p_00"]
+
+
 def test_cold_start_leaves_returning_shoppers_to_the_usual_ranking():
     from dades_huzz.model import category_best_sellers
 
@@ -212,3 +230,99 @@ def test_cold_start_leaves_returning_shoppers_to_the_usual_ranking():
     request = {"is_new_user": False, "recent_views": [{"product_id": "v_last"}]}
     with_rule = category_best_sellers(**kwargs, cold_start=True)(request, state)
     assert with_rule == category_best_sellers(**kwargs)(request, state)
+
+
+def test_a_returning_shopper_without_views_gets_their_favourite_categories():
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Apocalypse: returning shoppers without views convert at 0.1 % on the overall best sellers;
+    # their history says which categories they like
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={"toys": ["t_1", "t_2"], "books": ["b_1"]},
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 0.75, "books": 0.25}},
+    )
+    state = _state(extra={"t_1", "t_2", "b_1"})
+    answer = recommend({"user_id": "u_1", "recent_views": []}, state)
+    # toys rank k costs (k+1)/(0.75 w), books (k+1)/(0.25 w): t_1 1.3/w, t_2 2.7/w, b_1 4/w
+    assert answer[:4] == ["t_1", "t_2", "b_1", "p_00"]
+    assert len(set(answer)) == 10
+
+
+def test_the_profile_blends_with_the_category_viewed_last_at_half_weight():
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={
+            "electronics": ["e_1", "e_2", "e_3"],
+            "toys": ["t_1", "t_2"],
+        },
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 1.0}},
+        profile_weight=0.5,
+    )
+    state = _state(extra={"e_1", "e_2", "e_3", "t_1", "t_2", "v_last"})
+    request = {"user_id": "u_1", "recent_views": [{"product_id": "v_last"}]}
+    # electronics scores 1 (viewed last), toys 0.5: rank k costs k+1 and 2(k+1); a tie goes to the
+    # higher-scoring category
+    assert recommend(request, state)[:5] == ["e_1", "e_2", "t_1", "e_3", "t_2"]
+
+
+def test_a_shopper_without_a_profile_gets_exactly_terminator():
+    from dades_huzz.model import category_best_sellers
+
+    signals = {
+        "category_of": {"v_last": "electronics"},
+        "ranked_by_category": {"electronics": ["e_1", "v_last", "e_2"]},
+    }
+    terminator = category_best_sellers(**signals, keep_viewed=True)
+    apocalypse = category_best_sellers(
+        **signals, keep_viewed=True, profiles={"u_other": {"toys": 1.0}}
+    )
+    state = _state(extra={"e_1", "e_2", "v_last"})
+    for request in (
+        {"user_id": "u_new", "recent_views": [{"product_id": "v_last"}]},
+        {"user_id": "u_new", "recent_views": []},
+    ):
+        assert apocalypse(request, state) == terminator(request, state)
+
+
+def test_armageddon_puts_viewed_products_on_top_of_the_profile_blend():
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Armageddon = Ultimatum + Apocalypse: live, a viewed product in slots 1-3 sold 2.2 % against
+    # 0.09 % for the rest, and a returning shopper's favourite category sold ~4x the one viewed last
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={"electronics": ["e_1", "v_last", "e_2"], "toys": ["t_1"]},
+        keep_viewed=True,
+        viewed_first=3,
+        profiles={"u_1": {"toys": 1.0}},
+    )
+    state = _state(extra={"e_1", "e_2", "t_1", "v_last"})
+    request = {"user_id": "u_1", "recent_views": [{"product_id": "v_last"}]}
+    # after v_last: at the default weight 3 the favourite toys go first (t_1 costs 1/3), then
+    # electronics e_1 costs 1, e_2 costs 3 (v_last, rank 2, is already on top)
+    assert recommend(request, state)[:5] == ["v_last", "t_1", "e_1", "e_2", "p_00"]
+
+
+def test_products_the_shopper_already_bought_are_left_out():
+    from dades_huzz.model import category_best_sellers
+
+    # the organisers (Discord, Sat 17:09): a shopper who already bought a product is much less likely to
+    # buy it again; live, 31 % of our answers showed one, 10 % in slot 1
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={"electronics": ["e_bought", "e_1", "v_last", "e_2"]},
+        keep_viewed=True,
+        viewed_first=3,
+        bought={"u_1": {"e_bought", "v_last", "p_00"}},
+    )
+    state = _state(extra={"e_bought", "e_1", "e_2", "v_last"})
+    request = {"user_id": "u_1", "recent_views": [{"product_id": "v_last"}]}
+    answer = recommend(request, state)
+    assert answer[:3] == ["e_1", "e_2", "p_01"]
+    assert not {"e_bought", "v_last", "p_00"} & set(answer)
+    assert len(set(answer)) == 10

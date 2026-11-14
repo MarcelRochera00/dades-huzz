@@ -3,10 +3,12 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import accumulate
+from math import hypot
 
 from dades_huzz.dashboard_jury import FINAL_END_MS
 from dades_huzz.data import RawTree
 from dades_huzz.serving.handover import SILENT_MS
+from dades_huzz.serving.report import conversion_interval_pct
 from dades_huzz.serving.versions import parse_split
 
 # Marcel verified these UTC boundaries from submissions/feedback in the Lane D discussion:
@@ -127,6 +129,36 @@ class VersionStats:
 @dataclass(frozen=True)
 class SplitStats:
     rows: tuple[VersionStats, ...]
+
+
+@dataclass(frozen=True)
+class PurchaseDifference:
+    estimate: float
+    lower: float
+    upper: float
+
+
+def purchase_difference(
+    challenger: VersionStats, main: VersionStats
+) -> PurchaseDifference | None:
+    """Challenger minus main, in purchases per 100 requests with feedback."""
+    if not challenger.completed or not main.completed:
+        return None
+
+    challenger_rate = 100 * challenger.purchases / challenger.completed
+    main_rate = 100 * main.purchases / main.completed
+    challenger_low, challenger_high = conversion_interval_pct(
+        challenger.purchases, challenger.completed
+    )
+    main_low, main_high = conversion_interval_pct(main.purchases, main.completed)
+
+    # Newcombe's method 10 combines the two Wilson intervals for independent proportions.
+    estimate = challenger_rate - main_rate
+    return PurchaseDifference(
+        estimate,
+        estimate - hypot(challenger_rate - challenger_low, main_high - main_rate),
+        estimate + hypot(challenger_high - challenger_rate, main_rate - main_low),
+    )
 
 
 def _ms(value: datetime) -> int:
