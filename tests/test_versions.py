@@ -4,7 +4,7 @@ import pytest
 
 from dades_huzz.data import State
 from dades_huzz.serving.report import conversion_interval_pct
-from dades_huzz.serving.versions import Split, parse_split
+from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, Split, parse_split
 
 FALLBACK = tuple(f"p_{i:02d}" for i in range(20))
 STATE = State(
@@ -133,3 +133,7 @@ def test_conversion_interval_matches_a_worked_example():
     low, high = conversion_interval_pct(purchases=10, requests=1000)
     assert round(low, 2) == 0.54
     assert round(high, 2) == 1.83
+
+
+def test_the_default_split_names_only_known_versions():
+    assert set(parse_split(DEFAULT_SPLIT)) <= set(VERSIONS)

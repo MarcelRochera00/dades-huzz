@@ -33,10 +33,16 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
             category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
         )
     ),
+    "tati-terminator-category-viewed": lambda rawtree: category_best_sellers(
+        **vars(
+            category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
+        ),
+        keep_viewed=True,
+    ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
-DEFAULT_SPLIT = "tati-0-bestsellers=50,tati-destroyer-category=50"
+DEFAULT_SPLIT = "tati-destroyer-category=50,tati-terminator-category-viewed=50"
 BUDGET_MS = 200.0
 """docs/contracts.md: about 200 ms per request. A challenger gets this long per request."""
 WINDOW = 20
