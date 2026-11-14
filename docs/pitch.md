@@ -58,8 +58,9 @@ The final results line is for the team to fill in once the organizers publish th
   ordered product IDs and the version name to `team_02.submissions` within three seconds.
   [Serving contract](contracts.md)
 - **Measure.** RawTree joins each request to submissions and feedback by request ID. The Team view
-  also reads the active split from `team_02.scratch` so it can count backup answers under the
-  originally assigned version. [Team query](../src/dades_huzz/dashboard_splits.py) ·
+  uses the request ID and the split settings to count backup answers under the originally assigned
+  version. For this rehearsal window it uses the team's recorded settings. For new splits it reads
+  the serving loop's updates in `team_02.scratch`. [Team query](../src/dades_huzz/dashboard_splits.py) ·
   [Jury query](../src/dades_huzz/dashboard_jury.py)
 
 ## What we would do with more time
