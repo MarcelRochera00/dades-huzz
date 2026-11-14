@@ -155,28 +155,102 @@ def test_cold_start_without_views_shows_the_global_trend_minus_recent_purchases(
     assert len(set(answer)) == 10
 
 
+def _blank_profile_state():
+    # five books and five toys per price step of 10; the trend ranks the dearer ones higher
+    books = {f"b{i}": 10.0 * i for i in range(1, 6)}
+    toys = {f"t{i}": 10.0 * i for i in range(1, 6)}
+    trend = {
+        "b5": 9,
+        "b4": 8,
+        "b3": 7,
+        "b2": 6,
+        "b1": 5,
+        "t5": 4,
+        "t4": 3,
+        "t3": 2,
+        "t2": 1,
+    }
+    state = _cold_state(trend, extra={*books, *toys})
+    category = {p: "Books & Media" for p in books} | {p: "Toys & Baby" for p in toys}
+    return State(**{**vars(state), "category": category, "price": books | toys})
+
+
+def _blank_request(device):
+    return {
+        "is_new_user": True,
+        "recent_views": [],
+        "context": {"device": device, "page": "home"},
+    }
+
+
+def _sold(**per_category):
+    # one shopper per purchase in the last 15 minutes, cycling through products 1-5: _sold(b=3) buys b1, b2, b3
+    return {
+        f"x_{prefix}_{i}": frozenset({f"{prefix}{(i - 1) % 5 + 1}"})
+        for prefix, n in per_category.items()
+        for i in range(1, n + 1)
+    }
+
+
+def test_a_blank_android_shopper_without_a_leading_category_gets_no_product_from_the_dearest_fifth():
+    # books and toys sell the same: no category leads, so all 10 slots follow what android buys
+    # (2 books, 1 toy). Android leaves out each category's dearest 20 %: b5 and t5 never show
+    state = _blank_profile_state()
+    state = State(**{**vars(state), "recent_purchases": _sold(b=4, t=4)})
+    answer = _cold_recommend({})(_blank_request("android"), state)
+    assert answer == ["b4", "b3", "t4", "b2", "b1", "t3", "t2", "p_00", "p_01", "p_02"]
+
+
+def test_a_blank_shopper_gives_the_leading_category_its_slots_first():
+    # toys sell 70 % and lead books by 40 points: toys take 5 slots on top. On ios only the dearest
+    # 40 % of each category shows, so the toys block holds t5 and t4, then books by what ios buys
+    state = _blank_profile_state()
+    state = State(**{**vars(state), "recent_purchases": _sold(t=7, b=3)})
+    for device in ("ios", "web"):
+        answer = _cold_recommend({})(_blank_request(device), state)
+        assert answer[:5] == ["t5", "t4", "b5", "b4", "p_00"], device
+        assert len(set(answer)) == 10
+
+
+def test_the_leading_category_gets_slots_by_its_share_of_the_last_15_minutes_sales():
+    from dades_huzz.model import best_selling_category
+
+    def leader(**sold):
+        return best_selling_category(_sold(**sold), lambda p: p[0])
+
+    assert leader(a=50, b=45, c=5) is None  # leads by 5 points only
+    assert leader(a=35, b=20, c=15, d=15, e=15) == ("a", 3)
+    assert leader(a=45, b=25, c=30) == ("a", 4)
+    assert leader(a=65, b=35) == ("a", 5)
+    assert leader(a=85, b=15) == ("a", 8)
+    assert (
+        leader(a=14, w=2, **{k: 4 for k in "bcdefghijklmnopqrstuv"}) is None
+    )  # under 15 %
+    assert leader() is None
+
+
 def test_cold_start_splits_the_list_by_the_share_of_views_per_category():
-    # 3 of 5 views are toys and 2 electronics: 6 toys slots, then 4 electronics slots. Each block opens
-    # with its last viewed product, then that category's trend; a short block is filled at the end
+    # 3 of 5 views are toys and 2 electronics: 6 toys slots, then 4 electronics slots. Each block lists
+    # the products viewed in it, latest first, then that category's trend; a short block is filled at the end
     recommend = _cold_recommend(
         {"t_v1": "toys", "t_v2": "toys", "e_v1": "electronics", "e_v2": "electronics"}
     )
-    trend = {"t_1": 9, "e_1": 8, "t_2": 7, "e_2": 6, "e_3": 5, "t_3": 4, "t_4": 3}
+    trend = {"t_1": 9, "e_1": 8, "t_2": 7, "e_2": 6, "e_3": 5, "t_3": 4}
     category = {p: "toys" if p.startswith("t") else "electronics" for p in trend}
     state = _cold_state(trend, extra={"t_v1", "t_v2", "e_v1", "e_v2"})
     state = State(**{**vars(state), "category": category})
     views = ["t_v1", "e_v1", "t_v1", "e_v2", "t_v2"]
     request = {"is_new_user": True, "recent_views": [{"product_id": p} for p in views]}
     assert recommend(request, state) == [
-        *["t_v2", "t_1", "t_2", "t_3", "t_4"],  # toys block: 5 of its 6 slots found
-        *["e_v2", "e_1", "e_2", "e_3"],
-        "p_00",
+        *["t_v2", "t_v1", "t_1", "t_2", "t_3"],  # toys block: 5 of its 6 slots found
+        *["e_v2", "e_v1", "e_1", "e_2"],
+        "e_3",
     ]
 
 
-def test_cold_start_breaks_ties_by_the_most_recent_view_and_shows_at_most_three_viewed():
+def test_cold_start_breaks_ties_by_the_most_recent_view():
     # one view in each of four categories: 2.5 slots each, the two leftover slots go to the categories
-    # viewed last; only the three most recently viewed categories open with their viewed product
+    # viewed last
     recommend = _cold_recommend({"a_v": "a", "b_v": "b", "c_v": "c", "d_v": "d"})
     trend = {f"{c}_{i}": 10 - i for c in "abcd" for i in range(3)}
     state = _cold_state(trend, extra={"a_v", "b_v", "c_v", "d_v"})
@@ -187,7 +261,34 @@ def test_cold_start_breaks_ties_by_the_most_recent_view_and_shows_at_most_three_
         *["d_v", "d_0", "d_1"],
         *["c_v", "c_0", "c_1"],
         *["b_v", "b_0"],
-        *["a_0", "a_1"],
+        *["a_v", "a_0"],
+    ]
+
+
+def test_a_cold_shopper_always_sees_what_they_carted_first():
+    # e_c is carted in a viewed category: it opens the electronics block. z_c is carted in a category
+    # they did not view: it still shows, on top
+    recommend = _cold_recommend({"t_v": "toys", "e_v": "electronics"})
+    trend = {"t_1": 9, "e_1": 8, "t_2": 7, "e_2": 6}
+    category = {p: "toys" if p.startswith("t") else "electronics" for p in trend}
+    category |= {"e_c": "electronics", "z_c": "garden"}
+    state = _cold_state(trend, extra={"t_v", "e_v", "e_c", "z_c"})
+    state = State(
+        **{
+            **vars(state),
+            "category": category,
+            "shopper_carted": {"u1": frozenset({"e_c", "z_c"})},
+        }
+    )
+    views = ["t_v", "e_v"]
+    request = {
+        "user_id": "u1",
+        "is_new_user": True,
+        "recent_views": [{"product_id": p} for p in views],
+    }
+    assert recommend(request, state)[:7] == [
+        "z_c",
+        *["e_c", "e_v", "e_1", "e_2", "t_v", "t_1"],
     ]
 
 
