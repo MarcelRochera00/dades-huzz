@@ -56,6 +56,35 @@ def test_new_products_are_available_and_marked_new():
     assert state.price["p_new"] == 3.5
 
 
+def test_every_product_has_its_category_including_products_added_during_the_event():
+    catalog = [
+        {**CATALOG[0], "category": "Pets", "subcategory": "Pet Beds"},
+        {**CATALOG[1], "category": "Beauty", "subcategory": "Shampoo"},
+    ]
+    rows = [
+        {
+            **update("p_new", "new_product", "2026-11-14 10:00:00"),
+            "category": "Pets",
+            "subcategory": "Pet Toys",
+        }
+    ]
+    state = current_state(catalog, rows, [])
+    assert state.category == {"p_a": "Pets", "p_b": "Beauty", "p_new": "Pets"}
+    assert state.subcategory == {
+        "p_a": "Pet Beds",
+        "p_b": "Shampoo",
+        "p_new": "Pet Toys",
+    }
+
+
+def test_a_row_without_a_category_keeps_the_one_already_known():
+    catalog = [{**CATALOG[0], "category": "Pets", "subcategory": "Pet Beds"}]
+    rows = [update("p_a", "price_change", "2026-11-14 10:01:00", price=8.0)]
+    state = current_state(catalog, rows, [])
+    assert state.category == {"p_a": "Pets"}
+    assert state.subcategory == {"p_a": "Pet Beds"}
+
+
 def test_fallback_is_the_best_sellers_that_are_available_in_order():
     out = [update("p_a", "out_of_stock", "2026-11-14 10:00:00", active=False)]
     assert current_state(CATALOG, out, ["p_off", "p_a", "p_b", "p_gone"]).fallback == (

@@ -3,7 +3,7 @@
 import os
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,10 @@ class State:
     """Products added during the event: a request that viewed one is a cold request."""
     fallback: tuple[str, ...]
     """The all-time best sellers that are available, best first: the baseline, and what pads a short answer."""
+    category: dict[str, str] = field(default_factory=dict)
+    """Every product's category, including the products added during the event, as soon as the loop sees them."""
+    subcategory: dict[str, str] = field(default_factory=dict)
+    """Every product's subcategory, like `category`."""
 
 
 def current_state(
@@ -36,11 +40,22 @@ def current_state(
     price: dict[str, float] = {}
     out_of_stock: set[str] = set()
     new: set[str] = set()
+    category: dict[str, str] = {}
+    subcategory: dict[str, str] = {}
+
+    def classify(row: Record) -> None:
+        if row.get("category"):
+            category[row["product_id"]] = row["category"]
+        if row.get("subcategory"):
+            subcategory[row["product_id"]] = row["subcategory"]
+
     for row in catalog:
         active[row["product_id"]] = bool(row["is_active"])
         price[row["product_id"]] = float(row["price_eur"])
+        classify(row)
     for row in sorted(updates, key=lambda r: str(r["ts"])):
         product = row["product_id"]
+        classify(row)
         if row.get("is_active") is not None:
             active[product] = bool(row["is_active"])
         if (
@@ -57,7 +72,7 @@ def current_state(
         p for p, is_active in active.items() if is_active and p not in out_of_stock
     )
     fallback = tuple(p for p in best_sellers if p in available)
-    return State(available, price, frozenset(new), fallback)
+    return State(available, price, frozenset(new), fallback, category, subcategory)
 
 
 STOCK_CHANGES = ("out_of_stock", "back_in_stock")
@@ -174,13 +189,14 @@ FROM shop.requests
 WHERE ts::DateTime64(3) > fromUnixTimestamp64Milli(toInt64({since_ms}))"""
 
 CATALOG = """
-SELECT product_id::String AS product_id, price_eur::Float64 AS price_eur, is_active::Bool AS is_active
+SELECT product_id::String AS product_id, price_eur::Float64 AS price_eur, is_active::Bool AS is_active,
+       category::String AS category, subcategory::String AS subcategory
 FROM shop.catalog"""
 
 CATALOG_UPDATES_SINCE = """
 SELECT product_id::String AS product_id, change::String AS change, toString(ts) AS ts,
        toUnixTimestamp64Milli(ts::DateTime64(3)) AS ts_ms, price_eur::Float64 AS price_eur,
-       is_active::Bool AS is_active
+       is_active::Bool AS is_active, category::String AS category, subcategory::String AS subcategory
 FROM shop.catalog_updates
 WHERE ts::DateTime64(3) >= fromUnixTimestamp64Milli(toInt64({since_ms}))"""
 
