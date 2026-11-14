@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from dades_huzz.data import RawTree
+from dades_huzz.data import CATALOG_UPDATES_SINCE, RawTree, current_state
+from dades_huzz.serving.trends import SubcategoryHeat, read_heat_backfill
 
 # The organizers publish the schedule in Barcelona time (CET for this event).
 PRACTICE_START_MS = int(datetime(2026, 11, 14, 9, tzinfo=UTC).timestamp() * 1000)
@@ -127,3 +128,24 @@ def load_jury_data(rawtree: RawTree) -> JuryData:
         )
         periods.append(JuryPeriod(name, start_ms, end_ms, feedback_through_ms, buckets))
     return JuryData(tuple(periods))
+
+
+def read_demand_trends(rawtree: RawTree, end: datetime) -> list[tuple[str, float]]:
+    """Replay Marcel's store demand detector at the end of the displayed 15-minute window."""
+    if end.utcoffset() is None:
+        raise ValueError("Demand trends require a timestamp with a time zone")
+    end_ms = int(end.timestamp() * 1000)
+    catalog = rawtree.catalog()
+    updates = rawtree.query(
+        CATALOG_UPDATES_SINCE.format(since_ms=0)
+        + f" AND ts::DateTime64(3) < fromUnixTimestamp64Milli(toInt64({end_ms}))"
+    )
+    subcategories = current_state(catalog, updates, ()).subcategory
+    counts, recent = read_heat_backfill(rawtree, end_ms)
+    heat = SubcategoryHeat()
+    heat.add_day(counts)
+    heat.add(
+        ((row["t"], name) for row in recent if (name := subcategories.get(row["p"]))),
+        count_in_day=False,
+    )
+    return sorted(heat.hot(end_ms).items(), key=lambda trend: (-trend[1], trend[0]))

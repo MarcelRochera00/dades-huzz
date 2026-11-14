@@ -13,6 +13,7 @@ import streamlit as st
 from requests import RequestException
 
 from dades_huzz.dashboard_jury import (
+    FINAL_END_MS,
     FINAL_START_MS,
     JURY_BUCKET_MS,
     PRACTICE_BEST_SELLERS,
@@ -23,6 +24,7 @@ from dades_huzz.dashboard_jury import (
     JuryData,
     JuryPeriod,
     load_jury_data,
+    read_demand_trends,
 )
 from dades_huzz.dashboard_leaderboard import (
     leaderboard_state,
@@ -144,6 +146,11 @@ def trend_data(end: datetime) -> list[dict]:
 @st.cache_data(ttl=25, show_spinner=False)
 def jury_data() -> JuryData:
     return load_jury_data(RawTree.from_env())
+
+
+@st.cache_data(ttl=55, show_spinner=False)
+def demand_data(end: datetime) -> list[tuple[str, float]]:
+    return read_demand_trends(RawTree.from_env(), end)
 
 
 @st.cache_data(ttl=55, show_spinner=False)
@@ -680,6 +687,55 @@ def jury_trend(rows: list[JuryBucket]) -> None:
     )
 
 
+def jury_demand() -> None:
+    st.subheader("Where store demand is rising")
+    end = min(clock_slot(), datetime.fromtimestamp(FINAL_END_MS / 1000, UTC))
+    snapshot = fetch_latest("jury_demand", lambda: (end, demand_data(end)))
+    if snapshot is None:
+        return
+    end, trends = snapshot
+    st.caption(
+        f"Store purchases in the 15 minutes to {local_time(end.timestamp())}, "
+        "compared with each subcategory’s share of purchases since the stream opened."
+    )
+    if not trends:
+        st.markdown(
+            "No demand spikes met the threshold in this window. In Saturday’s practice replay, "
+            "Game Consoles peaked at **6.98× its whole-stream purchase share**."
+        )
+    else:
+        frame = pd.DataFrame(
+            trends[:5], columns=["Subcategory", "Purchase share multiple"]
+        )
+        frame["Multiple"] = frame["Purchase share multiple"].map(
+            lambda value: f"{value:.2f}×"
+        )
+        bars = alt.Chart(frame).encode(
+            x=alt.X(
+                "Purchase share multiple:Q",
+                title="Multiple of whole-stream purchase share",
+                scale=alt.Scale(
+                    domain=[0, frame["Purchase share multiple"].max() * 1.18]
+                ),
+            ),
+            y=alt.Y("Subcategory:N", sort=frame["Subcategory"].tolist(), title=None),
+            tooltip=["Subcategory:N", "Multiple:N"],
+        )
+        chart = bars.mark_bar(color=TEAL, size=18, cornerRadiusEnd=3) + bars.mark_text(
+            align="left", dx=6, color="#172735"
+        ).encode(text="Multiple:N")
+        st.altair_chart(
+            chart_style(chart.properties(height=max(72, 29 * len(frame)))),
+            theme=None,
+            width="stretch",
+        )
+    st.caption(
+        "The detector flags a subcategory when its purchase share at least doubles "
+        "and records at least 25 more purchases than that share would predict. "
+        "Use the signal to check stock and test featuring relevant products while demand is high."
+    )
+
+
 def jury_score() -> None:
     with st.expander("Official competition score"):
         state = fetch_latest("official_score", scoreboard)
@@ -708,7 +764,6 @@ def jury_view() -> None:
     st.subheader("What shoppers bought in the simulation")
     data = fetch_latest("jury", jury_data)
     if not data:
-        jury_score()
         return
     periods = {period.name: period for period in data.periods}
     available = [
@@ -718,7 +773,6 @@ def jury_view() -> None:
     ]
     if not available:
         st.info("No confirmed shopping results are available yet.")
-        jury_score()
         return
     # Follow the final automatically when it first has feedback, unless the presenter picked a period.
     period_column, version_column = st.columns([1, 2])
@@ -733,7 +787,6 @@ def jury_view() -> None:
         versions[row.version] += row.shown
     if not versions:
         st.info("No team recommendations have a confirmed display in this round yet.")
-        jury_score()
         return
     version_names = sorted(versions)
     default_version = min(version_names, key=lambda name: (-versions[name], name))
@@ -773,7 +826,6 @@ def jury_view() -> None:
         st.caption("Selected version uses the store’s overall in-stock best sellers.")
     if displays:
         jury_trend(rows)
-    jury_score()
 
 
 st.sidebar.title("Tati")
@@ -792,6 +844,8 @@ def show_view() -> None:
     if view == "Jury":
         with st.container(key="dashboard-panel-jury", border=True):
             jury_view()
+            jury_demand()
+            jury_score()
         return
     st.title("Recommendation monitor")
     end = clock_slot()

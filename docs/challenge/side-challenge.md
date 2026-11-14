@@ -62,6 +62,10 @@ shows its display count. Default to the Sunday final, 10:00–12:00 Barcelona ti
 feedback is available. Until then, show results labeled **Practice**. Preselect the version with
 the most confirmed displays in the round and allow the presenter to choose another version.
 
+Show which store subcategories are gaining purchase share using the serving detector’s
+15-minute multiplier. Label the store activity window and explain how it can inform stock checks
+and what to feature during a pilot.
+
 Keep the official team score available separately once the organizers publish it. It uses the
 simulator’s purchase probabilities and other scoring components.
 
