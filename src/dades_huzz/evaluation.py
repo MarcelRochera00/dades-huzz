@@ -154,12 +154,14 @@ def paired_difference(
     """
     if not cases:
         return PairedDifference(0.0, 0.0, 0.0, math.nan, math.nan, math.nan)
-    groups: dict[Any, int] = {}
-    codes = []
-    for index, case in enumerate(cases):
-        user = case["request"].get("user_id") or ("__request__", index)
-        codes.append(groups.setdefault(user, len(groups)))
-    codes_array = np.asarray(codes)
+    # shoppers are numbered in sorted order, so the same seed gives the same interval whatever order
+    # RawTree returned the requests in
+    users = [
+        str(case["request"].get("user_id") or f"__request__{index}")
+        for index, case in enumerate(cases)
+    ]
+    groups = {user: code for code, user in enumerate(sorted(set(users)))}
+    codes_array = np.asarray([groups[user] for user in users])
     base_sum = np.bincount(codes_array, weights=np.asarray(baseline, dtype=float))
     chal_sum = np.bincount(codes_array, weights=np.asarray(challenger, dtype=float))
     size = np.bincount(codes_array).astype(float)

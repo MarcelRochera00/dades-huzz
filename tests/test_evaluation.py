@@ -185,3 +185,17 @@ def test_paired_difference_without_requests_is_zero_instead_of_crashing():
     from dades_huzz.evaluation import paired_difference
 
     assert paired_difference([], [], []).diff == 0.0
+
+
+def test_paired_difference_does_not_depend_on_the_order_of_the_requests():
+    from dades_huzz.evaluation import paired_difference
+
+    baseline = [0.0, 2.0, 0.0, 0.0, 1.0, 0.0]
+    challenger = [5.0, 2.0, 0.0, 4.0, 0.0, 3.0]
+    users = ["u1", "u1", "u2", "u3", "u3", "u4"]
+    forward = paired_difference(baseline, challenger, _cases(users), draws=200)
+    backward = paired_difference(
+        baseline[::-1], challenger[::-1], _cases(users[::-1]), draws=200
+    )
+    assert forward.low == pytest.approx(backward.low)
+    assert forward.high == pytest.approx(backward.high)
