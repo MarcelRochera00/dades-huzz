@@ -22,7 +22,8 @@ HANG_AFTER_S = 15.0
 """A loop whose alive file has not changed for this long is hung. Its slowest step (a RawTree read) gives up
 after 1 s, so a healthy loop marks itself several times a second."""
 STARTUP_GRACE_S = 120.0
-"""Before its first mark the loop is starting up; while RawTree is down it marks itself on every retry."""
+"""While the loop says it is starting (loading the catalogue and the versions, retrying while RawTree is
+down), it gets this long between marks instead of HANG_AFTER_S."""
 STABLE_AFTER_S = 300.0
 """A loop that ran this long before failing is not failing quickly: the next restart waits the minimum."""
 
@@ -71,15 +72,16 @@ class AliveClock:
         return now - self._changed_at
 
 
-def mark_alive(path: Path) -> None:
-    """Touch the alive file. Never raises: a missing folder is recreated, and any other error is ignored,
-    because a failed mark must not take the answering loop down (at worst the watchdog restarts it)."""
+def mark_alive(path: Path, phase: str = "running") -> None:
+    """Write the alive file: `phase` is 'starting' while loading, 'running' once answering. Never raises: a
+    missing folder is recreated, and any other error is ignored, because a failed mark must not take the
+    answering loop down (at worst the watchdog restarts it)."""
     try:
-        path.touch()
+        path.write_text(phase)
     except OSError:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
+            path.write_text(phase)
         except OSError:
             pass
 
@@ -203,9 +205,10 @@ def _stop(child: subprocess.Popen, hung: bool = False) -> None:
             child.wait()
 
 
-def _alive_mark(path: Path) -> float | None:
+def _alive_mark(path: Path) -> tuple[int, str] | None:
+    """The alive file's (modification time, phase), or None if there is none yet."""
     try:
-        return path.stat().st_mtime_ns
+        return path.stat().st_mtime_ns, path.read_text()
     except OSError:
         return None
 
@@ -242,8 +245,12 @@ def supervise(
                 while True:
                     time.sleep(check_s)
                     now = time.monotonic()
-                    clock.observe(_alive_mark(alive_path), now)
-                    limit = hang_after_s if clock.marked else startup_grace_s
+                    mark = _alive_mark(alive_path)
+                    clock.observe(mark, now)
+                    starting = not clock.marked or (
+                        mark is not None and mark[1] == "starting"
+                    )
+                    limit = startup_grace_s if starting else hang_after_s
                     reason = restart_reason(
                         child.poll() is not None, clock.seconds_since_alive(now), limit
                     )

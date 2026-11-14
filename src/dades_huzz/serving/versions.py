@@ -1,0 +1,247 @@
+"""The version split: which recommenders answer live, and which requests each one gets.
+
+Every request goes to one version, chosen from a fingerprint of its `request_id`, so the same request gets
+the same version on any laptop and after any restart. The answer carries the version that produced it as
+`model_version`, so the serving report compares versions on the same stream, side by side.
+
+The first version listed is the champion (GLOSSARY.md): it answers in the loop itself. Every other version is
+a challenger, with a time limit per request. A challenger that misses it or raises gives way to the champion
+for that shopper. A challenger slow on average is taken out for OUT_FOR_MS, also across restarts and
+laptops. One that cannot load is left out, and the champion answers its share.
+
+To add a version, add one line to VERSIONS (a lane A file: open a PR, lane A confirms). Choose which run and
+their shares with `run_recommender.py --versions name=share,...`, champion first.
+"""
+
+import hashlib
+import math
+import threading
+import time
+from collections import deque
+from collections.abc import Callable
+from datetime import UTC, datetime
+
+from dades_huzz.data import RawTree, Record, State
+from dades_huzz.features import category_signals
+from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.serving.loop import Recommend
+
+VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
+    "tati-0-bestsellers": lambda rawtree: best_sellers,
+    "tati-destroyer-category": lambda rawtree: category_best_sellers(
+        **vars(
+            category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
+        )
+    ),
+}
+"""Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
+
+DEFAULT_SPLIT = "tati-0-bestsellers=50,tati-destroyer-category=50"
+BUDGET_MS = 200.0
+"""docs/contracts.md: about 200 ms per request. A challenger gets this long per request."""
+WINDOW = 20
+"""A challenger whose last WINDOW requests average over budget is taken out."""
+OUT_FOR_MS = 30 * 60_000
+"""How long a take-out lasts; then the version gets another chance (the time limit caps what it costs)."""
+MAX_PENDING = 20
+"""A challenger with this many calls still running (hung) is not called again: it times out at once."""
+LOAD_ATTEMPTS = 3
+
+TAKE_OUTS = """
+SELECT version::String AS version, max(until_ms::Int64) AS until_ms
+FROM {team}.scratch
+WHERE kind::String = 'version_out' AND until_ms::Int64 > {now_ms}
+GROUP BY version"""
+
+
+def wall_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def parse_split(text: str) -> dict[str, int]:
+    """'a=50,b=50' -> {'a': 50, 'b': 50}. Shares are positive whole numbers; their total need not be 100."""
+    shares: dict[str, int] = {}
+    for part in text.split(","):
+        name, sep, share = part.partition("=")
+        name = name.strip()
+        if not sep or not name or not share.strip().isdigit() or int(share) <= 0:
+            raise ValueError(f"expected name=positive_share, got {part!r} in {text!r}")
+        if name in shares:
+            raise ValueError(f"{name!r} appears twice in {text!r}")
+        shares[name] = int(share)
+    return shares
+
+
+class Split:
+    """Assigns requests to versions by share, runs challengers under a time limit, and takes out a slow one."""
+
+    def __init__(
+        self,
+        recommenders: dict[str, Recommend],
+        shares: dict[str, int],
+        budget_ms: float = BUDGET_MS,
+        out_until_ms: dict[str, float] | None = None,
+        on_take_out: Callable[[str, int], None] = lambda name, until_ms: None,
+    ) -> None:
+        self.recommenders = recommenders
+        self.shares = shares
+        self.champion = next(iter(shares))
+        self.budget_ms = budget_ms
+        self.out_until_ms: dict[str, float] = dict(out_until_ms or {})
+        self.on_take_out = on_take_out
+        self._times: dict[str, deque[float]] = {
+            name: deque(maxlen=WINDOW) for name in shares
+        }
+        self._pending: dict[str, list[threading.Thread]] = {name: [] for name in shares}
+
+    def taken_out(self, now_ms: int | None = None) -> set[str]:
+        now = now_ms if now_ms is not None else wall_ms()
+        return {name for name, until in self.out_until_ms.items() if until > now}
+
+    def version_for(self, request_id: str, now_ms: int | None = None) -> str:
+        """Deterministic: a sha256 fingerprint of the id, not Python's hash(), which changes per process."""
+        point = int.from_bytes(
+            hashlib.sha256(request_id.encode()).digest()[:8], "big"
+        ) % sum(self.shares.values())
+        for name, share in self.shares.items():
+            if point < share:
+                return self.champion if name in self.taken_out(now_ms) else name
+            point -= share
+        raise AssertionError("unreachable: point < total share")
+
+    def recommend(
+        self, request: Record, state: State
+    ) -> tuple[str, list[str], str | None]:
+        """(version that answered, its items, problem). A challenger that times out or raises gives way to the
+        champion, and the problem says so ('timeout:name', 'model_error:name')."""
+        version = self.version_for(request["request_id"])
+        if version == self.champion:
+            started = time.perf_counter()
+            items = self.recommenders[version](request, state)
+            self.record(version, (time.perf_counter() - started) * 1000)
+            return version, items, None
+        items, problem = self._call_with_limit(version, request, state)
+        if problem:
+            return (
+                self.champion,
+                self.recommenders[self.champion](request, state),
+                f"{problem}:{version}",
+            )
+        return version, items, None
+
+    def _call_with_limit(
+        self, version: str, request: Record, state: State
+    ) -> tuple[list[str], str | None]:
+        pending = self._pending[version] = [
+            t for t in self._pending[version] if t.is_alive()
+        ]
+        if len(pending) >= MAX_PENDING:
+            self.record(version, self.budget_ms * 2)
+            return [], "timeout"
+        box: dict[str, object] = {}
+
+        def run() -> None:
+            try:
+                box["items"] = self.recommenders[version](request, state)
+            except Exception as e:  # noqa: BLE001  reported to the caller as model_error
+                box["error"] = e
+
+        started = time.perf_counter()
+        thread = threading.Thread(
+            target=run, daemon=True
+        )  # daemon: a hung model never blocks exit
+        thread.start()
+        thread.join(self.budget_ms / 1000)
+        self.record(version, (time.perf_counter() - started) * 1000)
+        if thread.is_alive():
+            pending.append(thread)
+            return [], "timeout"
+        if "error" in box:
+            print(f"version {version} raised: {box['error']!r}", flush=True)
+            return [], "model_error"
+        return box["items"], None  # type: ignore[return-value]
+
+    def record(self, name: str, elapsed_ms: float, now_ms: int | None = None) -> None:
+        """Note how long `name` took for one request; take it out if its recent average is over budget."""
+        now = now_ms if now_ms is not None else wall_ms()
+        times = self._times[name]
+        times.append(elapsed_ms)
+        average = sum(times) / len(times)
+        if name == self.champion or len(times) < WINDOW or average <= self.budget_ms:
+            return
+        if name not in self.taken_out(now):
+            until = now + OUT_FOR_MS
+            self.out_until_ms[name] = until
+            times.clear()
+            print(
+                f"version {name} taken out for {OUT_FOR_MS // 60_000} min: {average:.0f} ms per request on average"
+                f" (budget {self.budget_ms:.0f}); the champion {self.champion} answers its share",
+                flush=True,
+            )
+            self.on_take_out(name, until)
+
+
+def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Split:
+    """Load every version in `shares`. The champion is retried until it loads (`load(fn, what)`); a challenger
+    gets LOAD_ATTEMPTS tries and is otherwise left out. Take-outs still running from before are kept."""
+    unknown = set(shares) - set(VERSIONS)
+    if unknown:
+        raise ValueError(
+            f"unknown versions {sorted(unknown)}; known: {sorted(VERSIONS)}"
+        )
+    champion = next(iter(shares))
+    recommenders = {
+        champion: load(lambda: VERSIONS[champion](rawtree), f"champion {champion}")
+    }
+    out_until_ms: dict[str, float] = {}
+    for name in list(shares)[1:]:
+        for attempt in range(1, LOAD_ATTEMPTS + 1):
+            try:
+                recommenders[name] = VERSIONS[name](rawtree)
+                break
+            except Exception as e:  # noqa: BLE001  a broken challenger must not stop the champion serving
+                print(
+                    f"loading version {name} failed ({attempt}/{LOAD_ATTEMPTS}): {e}",
+                    flush=True,
+                )
+                time.sleep(2)
+        else:
+            print(
+                f"version {name} left out: it did not load; the champion {champion} answers its share",
+                flush=True,
+            )
+            out_until_ms[name] = math.inf
+    try:
+        for row in rawtree.query(
+            TAKE_OUTS.format(team=rawtree.team, now_ms=wall_ms()), timeout=5
+        ):
+            if row["version"] in shares and row["version"] != champion:
+                out_until_ms.setdefault(row["version"], row["until_ms"])
+                print(
+                    f"version {row['version']} still taken out from before, until {row['until_ms']}",
+                    flush=True,
+                )
+    except Exception as e:  # noqa: BLE001  none recorded yet (the columns do not exist) or RawTree is slow
+        print(f"could not read earlier take-outs: {str(e)[:120]}", flush=True)
+
+    def remember(
+        name: str, until_ms: int
+    ) -> None:  # in the background: never on the answering path
+        row = {
+            "kind": "version_out",
+            "version": name,
+            "until_ms": until_ms,
+            "ts_ms": wall_ms(),
+        }
+        threading.Thread(
+            target=lambda: _try(lambda: rawtree.insert("scratch", [row])), daemon=True
+        ).start()
+
+    return Split(recommenders, shares, out_until_ms=out_until_ms, on_take_out=remember)
+
+
+def _try(action: Callable[[], object]) -> None:
+    try:
+        action()
+    except Exception as e:  # noqa: BLE001  remembering a take-out is best effort
+        print(f"could not record a take-out: {e}", flush=True)

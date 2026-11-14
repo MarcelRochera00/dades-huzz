@@ -1,4 +1,5 @@
 import sys
+import time
 
 from dades_huzz.serving.watchdog import (
     AliveClock,
@@ -92,3 +93,24 @@ def test_alive_age_is_measured_from_when_the_mark_last_changed_not_from_the_wall
 def test_marking_alive_never_raises_even_if_the_folder_is_gone(tmp_path):
     mark_alive(tmp_path / "gone" / "alive")
     assert (tmp_path / "gone" / "alive").exists()
+
+
+def test_a_loop_still_starting_up_gets_the_startup_grace_not_the_hang_limit(tmp_path):
+    alive, log = tmp_path / "alive", tmp_path / "watchdog.log"
+    starting = [
+        sys.executable,
+        "-c",
+        f"import pathlib, time; pathlib.Path({str(alive)!r}).write_text('starting'); time.sleep(60)",
+    ]
+    started = time.monotonic()
+    supervise(
+        starting,
+        alive,
+        log,
+        hang_after_s=0.3,
+        startup_grace_s=2,
+        check_s=0.1,
+        max_restarts=1,
+    )
+    assert time.monotonic() - started > 1.8
+    assert "the loop hung" in log.read_text()

@@ -25,6 +25,7 @@ BY_RECOMMENDER = """
 SELECT if(f.served_by = 'team', s.model_version, 'fallback') AS served_by, count() AS requests,
        quantile(0.5)(f.latency_ms) AS p50_ms, quantile(0.95)(f.latency_ms) AS p95_ms, max(f.latency_ms) AS max_ms,
        round(100 * countIf(f.clicked != '') / requests, 2) AS ctr_pct,
+       countIf(f.purchased != '') AS purchases,
        round(100 * countIf(f.purchased != '') / requests, 2) AS conversion_pct,
        round(sum(f.revenue_eur) / requests, 3) AS revenue_per_request
 FROM (SELECT request_id::String AS request_id FROM shop.requests WHERE {window}) AS r
@@ -127,4 +128,27 @@ def serving_report(rawtree: RawTree, minutes: float) -> dict[str, list[Record]]:
         except requests.HTTPError as e:
             # e.g. no heartbeat written yet: report the other sections anyway
             report[name] = [{"error": e.response.json().get("message", str(e))[:160]}]
+    for row in report["by recommender"]:
+        if "purchases" in row:  # not on an error row
+            low, high = conversion_interval_pct(
+                int(row["purchases"]), int(row["requests"])
+            )
+            row["conversion_95pct"] = f"{low:.2f}-{high:.2f}"
     return report
+
+
+def conversion_interval_pct(
+    purchases: int, requests: int, z: float = 1.96
+) -> tuple[float, float]:
+    """95 % Wilson interval for a conversion rate, in percent: where the true rate plausibly lies given what
+    we saw. With about 1 % conversion it stays wide for a long time, which is the point of showing it."""
+    if requests == 0:
+        return (0.0, 100.0)
+    p = purchases / requests
+    centre = (p + z * z / (2 * requests)) / (1 + z * z / requests)
+    half = (
+        z
+        * ((p * (1 - p) / requests + z * z / (4 * requests * requests)) ** 0.5)
+        / (1 + z * z / requests)
+    )
+    return (100 * max(0.0, centre - half), 100 * min(1.0, centre + half))

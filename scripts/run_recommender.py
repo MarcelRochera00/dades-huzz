@@ -16,8 +16,8 @@ import sys
 from pathlib import Path
 
 from dades_huzz.data import RawTree
-from dades_huzz.model import best_sellers
 from dades_huzz.serving import serve
+from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, load_split, parse_split
 from dades_huzz.serving.watchdog import KeepAwake, exit_when_watchdog_dies, supervise
 
 ALIVE_FILE = Path(f"outputs/loop_alive_{os.getpid()}")
@@ -44,16 +44,29 @@ def main() -> None:
         help="run the loop bare: no keep-awake, no restart when it exits or hangs",
     )
     parser.add_argument(
-        "--alive-file", type=Path, help=argparse.SUPPRESS
-    )  # set by the watchdog for its child
+        "--versions",
+        default=DEFAULT_SPLIT,
+        help=f"which versions answer and their shares, the champion first (known: {', '.join(VERSIONS)})",
+    )
+    # set by the watchdog for its child
+    parser.add_argument("--alive-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    # Refuse a malformed split or an unknown version before starting anything.
+    try:
+        shares = parse_split(args.versions)
+    except ValueError as e:
+        parser.error(str(e))
+    if unknown := set(shares) - set(VERSIONS):
+        parser.error(
+            f"unknown versions {sorted(unknown)}; known: {', '.join(VERSIONS)}"
+        )
     if args.no_watchdog:
         if args.alive_file:  # started by the watchdog: stop if it dies
             exit_when_watchdog_dies()
+        rawtree = RawTree.from_env()
         serve(
-            RawTree.from_env(),
-            best_sellers,
-            "best-sellers",
+            rawtree,
+            lambda load: load_split(rawtree, shares, load),
             log_path=args.log,
             handover=not args.no_handover,
             alive_path=args.alive_file,

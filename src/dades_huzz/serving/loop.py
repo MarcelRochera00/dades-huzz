@@ -11,6 +11,7 @@ import traceback
 from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dades_huzz.data import (
     STOCK_CHANGES,
@@ -24,6 +25,9 @@ from dades_huzz.data import (
 )
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.watchdog import mark_alive
+
+if TYPE_CHECKING:  # versions.py imports the models, which import this module
+    from dades_huzz.serving.versions import Split
 
 Recommend = Callable[[Record, State], list[str]]
 """`recommend(request, state) -> list[str]`, the shared signature in docs/contracts.md."""
@@ -145,29 +149,25 @@ class LiveState:
 
 
 def answer(
-    requests: list[Record],
-    recommend: Recommend,
-    model_version: str,
-    state: State,
-    allowed: AbstractSet[str],
+    requests: list[Record], split: "Split", state: State, allowed: AbstractSet[str]
 ) -> list[Record]:
-    """One valid answer per request, plus the problems that had to be repaired. The model may fail; the answer
-    may not. `allowed` is stricter than `state.available` (see LiveState)."""
+    """One valid answer per request from the version the split gives it, plus the problems found. The model
+    may fail or be slow; the answer may not. `allowed` is stricter than `state.available` (see LiveState)."""
     answers = []
     for request in requests:
         try:
-            items = recommend(request, state)
-            problems = validate(items, allowed)
-        except Exception:  # noqa: BLE001  a model bug must not cost the answer
+            version, items, problem = split.recommend(request, state)
+            problems = ([problem] if problem else []) + validate(items, allowed)
+        except Exception:  # noqa: BLE001  a champion bug must not cost the answer
             traceback.print_exc()
-            items, problems = [], ["model_error"]
+            version, items, problems = split.champion, [], ["model_error"]
         if problems:
             items = repair(items, allowed, state.fallback)
         answers.append(
             {
                 "request_id": request["request_id"],
                 "items": items,
-                "model_version": model_version,
+                "model_version": version,
                 "problems": problems,
             }
         )
@@ -180,24 +180,29 @@ class Waiting(Exception):
 
 def serve(
     rawtree: RawTree,
-    recommend: Recommend,
-    model_version: str,
+    load_versions: Callable[[Callable], "Split"],
     log_path: Path,
     handover: bool = True,
     alive_path: Path | None = None,
 ) -> None:
-    """Answer requests forever with `recommend`, tagging every answer with `model_version`.
+    """Answer requests forever, each with the version the split gives it (`model_version` in the answer).
 
-    With `handover`, the loop answers only while it is the team's active loop (see handover.py). With
-    `alive_path`, every round touches that file so the watchdog can tell the loop is not hung (watchdog.py).
+    `load_versions(load)` loads the split, with `load(fn, what)` retrying each load the way start-up loads
+    are retried. With `handover`, the loop answers only while it is the team's active loop (see handover.py).
+    With `alive_path`, every round touches that file so the watchdog can tell the loop is not hung.
     """
 
-    def alive() -> None:
+    def alive(phase: str = "running") -> None:
         if alive_path:
-            mark_alive(alive_path)
+            mark_alive(alive_path, phase)
 
-    alive()
-    live = LiveState(rawtree, on_retry=alive)
+    def starting() -> None:
+        alive("starting")
+
+    starting()
+    live = LiveState(rawtree, on_retry=starting)
+    split = load_versions(lambda load, what: until_ok(load, what, starting))
+    print(f"versions: {split.shares} (champion: {split.champion})", flush=True)
     cursor = RequestCursor(MAX_AGE_MS)
     turn = Handover(rawtree, enabled=handover)
     was_active = not handover
@@ -223,9 +228,7 @@ def serve(
                     rawtree.requests_since(cursor.since_ms(now_ms())), now_ms()
                 )
                 if fresh:
-                    answers = answer(
-                        fresh, recommend, model_version, live.state, live.allowed
-                    )
+                    answers = answer(fresh, split, live.state, live.allowed)
                     rawtree.insert(
                         "submissions",
                         [

@@ -1,5 +1,6 @@
 from dades_huzz.data import State
 from dades_huzz.serving import answer, decide_role, repair, validate
+from dades_huzz.serving.versions import Split
 
 AVAILABLE = {f"p_{i:02d}" for i in range(20)}
 TEN = [f"p_{i:02d}" for i in range(10)]
@@ -193,13 +194,8 @@ def test_answer_replaces_a_product_whose_stock_just_changed_even_if_available():
         fallback=fallback,
     )
     allowed = state.available - {"p_00"}
-    [result] = answer(
-        [{"request_id": "r1"}],
-        lambda request, state: list(fallback[:10]),
-        "v",
-        state,
-        allowed,
-    )
+    split = Split({"v": lambda request, state: list(fallback[:10])}, {"v": 1})
+    [result] = answer([{"request_id": "r1"}], split, state, allowed)
     assert result["items"] == [f"p_{i:02d}" for i in range(1, 11)]
     assert result["problems"] == ["unavailable"]
 
@@ -216,6 +212,31 @@ def test_answer_survives_a_model_that_raises():
     def broken(request, state):
         raise ValueError("bug")
 
-    [result] = answer([{"request_id": "r1"}], broken, "v", state, state.available)
+    [result] = answer(
+        [{"request_id": "r1"}], Split({"v": broken}, {"v": 1}), state, state.available
+    )
     assert result["items"] == list(fallback)
     assert result["problems"] == ["model_error"]
+    assert result["model_version"] == "v"
+
+
+def test_answer_tags_each_request_with_the_version_that_answered_it():
+    fallback = tuple(f"p_{i:02d}" for i in range(20))
+    state = State(
+        available=frozenset(fallback),
+        price={},
+        new_products=frozenset(),
+        fallback=fallback,
+    )
+    split = Split(
+        {"a": lambda r, s: list(fallback[:10]), "b": lambda r, s: list(fallback[10:])},
+        {"a": 1, "b": 1},
+    )
+    requests = [{"request_id": f"r_{i}"} for i in range(40)]
+    for request, result in zip(
+        requests, answer(requests, split, state, state.available)
+    ):
+        assert result["model_version"] == split.version_for(request["request_id"])
+        assert result["items"] == list(
+            fallback[:10] if result["model_version"] == "a" else fallback[10:]
+        )
