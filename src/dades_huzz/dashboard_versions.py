@@ -69,7 +69,7 @@ VERSION_STYLES: dict[str, VersionStyle] = {
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 
-SPARE_COLOURS = ("#17becf", "#bcbd22", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f")
+SPARE_COLOURS = ("#17becf", "#bcbd22", "#9467bd", "#8c564b", "#e377c2", "#d62728")
 UNDESCRIBED = "No description yet: add it to VERSION_STYLES in dashboard_versions.py."
 
 

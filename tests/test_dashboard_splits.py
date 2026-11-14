@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from dades_huzz.dashboard_splits import SplitPeriod, read_split_stats
+from dades_huzz.dashboard_team import read_cold_groups
 
 
 class FakeRawTree:
@@ -62,3 +63,23 @@ def test_cold_requests_and_purchases_are_counted_per_assigned_version():
     assert (a.cold_completed, a.cold_purchases) == (4, 1)
     assert (b.cold_completed, b.cold_purchases) == (5, 1)
     assert "new_product" in rawtree.sql and "is_new_user" in rawtree.sql
+
+
+def test_the_cold_groups_query_is_built_from_the_shared_cold_definition():
+    rawtree = FakeRawTree(
+        [
+            {
+                "group_name": "Both",
+                "requests": 3,
+                "completed": 2,
+                "pending": 1,
+                "purchases": 1,
+            }
+        ]
+    )
+
+    groups = read_cold_groups(rawtree, datetime(2026, 11, 14, 18, tzinfo=UTC))
+
+    assert "{" not in rawtree.sql.replace("{team}", "")
+    assert "new_shopper" in rawtree.sql and "viewed_new_product" in rawtree.sql
+    assert next(g for g in groups if g["group"] == "Both")["purchases"] == 1
