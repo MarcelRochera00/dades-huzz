@@ -44,7 +44,10 @@ def test_shopper_profiles_are_each_shoppers_share_of_weight_per_category():
 
 class PurchasesRawTree:
     def query(self, sql, timeout=10):
-        assert "purchase" in sql and "history_events" in sql
+        # the history is a snapshot from before the event; live purchases are in shop.events
+        assert (
+            "purchase" in sql and "shop.history_events" in sql and "shop.events" in sql
+        )
         return [{"user_id": "u_1", "products": ["p_a", "p_b"]}]
 
 

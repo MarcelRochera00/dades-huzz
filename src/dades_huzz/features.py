@@ -49,11 +49,19 @@ GROUP BY user_id, category"""
 
 
 SHOPPER_PURCHASES = """
-SELECT user_id::String AS user_id, groupUniqArray(product_id::String) AS products
-FROM shop.history_events
-WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+SELECT user_id, groupUniqArray(product_id) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.history_events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String AS user_id, product_id::String AS product_id
+    FROM shop.events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
 GROUP BY user_id"""
-"""Every product each shopper bought before `until`."""
+"""Every product each shopper bought before `until`: in the history, a snapshot from before the event, and live
+in shop.events, which keeps growing through Sunday (organisers, Sat 17:30)."""
 
 
 @dataclass(frozen=True)
