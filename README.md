@@ -1,10 +1,54 @@
 # dades-huzz
 
-Team workspace for the Datathon FME 2026. The name is a placeholder until we pick a challenge.
+Team 2's entry for the Datathon FME 2026, **RawTree · Real-Time Recommendation**. About three shoppers
+a second reach a shop's product carousel. For each one we have 3 seconds to write 10 products they are
+likely to buy into RawTree, or the shopper sees a generic list. Only Sunday 10:00–12:00 CET is scored.
 
 - **How we work (Catalan, one page):** [docs/COM-TREBALLEM.md](docs/COM-TREBALLEM.md)
 - **Rules for coding agents:** [AGENTS.md](AGENTS.md)
 - **The challenge:** [docs/challenge/](docs/challenge/)
+
+## What we built
+
+**Tati**, a recommender that answers every live shopper and keeps improving while it runs:
+
+- **Answers every request on time.** About 1.1 s from the shopper's arrival to our answer (p50), with
+  about 99 % on time. Every answer is checked: 10 distinct products, all active and in stock.
+- **Survives the night.** It moves between laptops without answering any request twice, restarts itself if it
+  crashes or hangs, and keeps the laptop awake.
+- **Tests ideas on real shoppers.** Each idea is scored first on the shop's history. Only the winner goes
+  live, as a challenger against the current best on a share of shoppers.
+- **Keeps up with the shop.** It sees stock, prices and new products within about 2 s, and re-reads
+  the whole catalogue every minute as a safety net.
+
+Every attempt, including the ones that lost, is in [docs/experiments.md](docs/experiments.md). Live,
+**Tati Terminator** has the best expected conversion: about 1.4–1.6x the organisers' baseline in the same
+window (rows 19–20).
+
+## How it works
+
+```text
+shop.requests ──► serving loop (src/dades_huzz/serving/loop.py), every 0.3 s
+                    │  new requests, skipped if too old to answer within 3 s
+                    ▼
+                  version split ── sha256(request_id) picks the model version
+                    │  (challengers get 200 ms, else the champion answers)
+                    ▼
+                  recommend(request, state) ── 10 products (src/dades_huzz/model.py)
+                    │                ▲
+                    │                └── State: available products, prices, categories,
+                    │                    new products; refreshed every 0.25 s
+                    │                    from shop.catalog_updates (src/dades_huzz/data.py)
+                    ▼
+                  check + repair ── 10 distinct, in stock, padded from the fallback
+                    ▼
+                  team_02.submissions (one insert per poll) ──► team_02.feedback
+
+alongside: handover (one loop answers, others wait), watchdog (restart on crash or hang)
+```
+
+The pieces and who owns them are in [docs/contracts.md](docs/contracts.md). The words we use are in
+[GLOSSARY.md](GLOSSARY.md).
 
 ## Setup
 
@@ -15,6 +59,46 @@ sh scripts/setup.sh      # macOS / Linux
 
 Requires [git](https://git-scm.com), [uv](https://docs.astral.sh/uv/) and the
 [GitHub CLI](https://cli.github.com).
+
+## Run it live
+
+Needs `.env` with `TEAM_ID` and `RAWTREE_API_KEY` (names in `.env.example`; never commit the key).
+
+```text
+uv run python scripts/run_recommender.py
+```
+
+It serves the default split in `src/dades_huzz/serving/versions.py` (today Tati Terminator alone). Keep
+the terminal open and the laptop plugged in. Stop it with Ctrl-C.
+
+- **Another laptop takes over** with the same command: it waits (`standby`) and starts answering about 6 s
+  after the active loop stops. Never pass `--no-handover` while another loop runs: every request would get
+  two answers.
+- **Change versions without losing answers:** start a second loop with the new split, then Ctrl-C the
+  old one once the new one says `standby`. A switch costs about 10–17 requests.
+
+  ```text
+  uv run python scripts/run_recommender.py --versions tati-terminator-category-viewed=50,tati-ultimatum-viewed-first=50
+  ```
+
+- **Check it:** `uv run python scripts/check_serving.py --minutes 30` lists answered, missing, late and
+  invalid requests, latency, and answers per version. On the practice round, compare versions with the
+  leaderboard API in the same window: `https://datathon.rawtree.dev/api/state?by=model&from=<unix s>&to=<unix s>`.
+- **Before leaving it unattended:** `uv run python scripts/check_unattended.py` checks keep-awake and
+  the restarts without touching RawTree. Set the laptop to never sleep while plugged in.
+
+### Sunday, final round
+
+1. Before 09:45: `git pull`, `uv sync`, then start the loop on one laptop with the **best version alone**.
+   The team's score counts every answer, so a split costs points. Check `standby -> active` and a clean
+   `check_serving.py`.
+2. 10:00: the stream switches to new shoppers, products and trends, with no reset: `shop.catalog` stays,
+   new products arrive as `new_product` updates, and `State` gives them their category within seconds
+   ([docs/challenge/qa.md](docs/challenge/qa.md)). Nothing to restart. If the loop ever logs
+   `catalogue changed: ...`, restart through the handover above, because models load their lists only at start.
+3. 10:00–12:00: the leaderboard is hidden. Run `check_serving.py --minutes 15` every 15 minutes, and keep
+   one teammate's loop in `standby` as a spare. Never two spares: if the active loop stops, both could
+   answer for a few seconds.
 
 ## Lane D dashboard
 
