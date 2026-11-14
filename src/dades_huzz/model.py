@@ -100,6 +100,7 @@ def category_best_sellers(
     profiles: Mapping[str, Mapping[str, float]] | None = None,
     profile_weight: float = PROFILE_WEIGHT,
     bought: Mapping[str, AbstractSet[str]] | None = None,
+    seen_in_history: Mapping[str, AbstractSet[str]] | None = None,
     cold_start: bool = False,
     day_weight: float = 0.0,
 ) -> Recommend:
@@ -130,7 +131,9 @@ def category_best_sellers(
     an add-to-cart counts 3) the same way, at that weight: a new shopper has no history, but often a day.
 
     `cold_start` answers a cold request (a new shopper, or a view of a new product) from the live trend
-    instead: see `cold_start_answer`. What the shopper bought is left out there too.
+    instead: see `cold_start_answer`. What the shopper bought is left out there too. `seen_in_history` is
+    what a returning shopper viewed in the history and never bought or carted; those are left out of the
+    cold answer. Today's views stay.
     """
     trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]
     band_cache: dict[str, tuple[State, frozenset[str]]] = {}
@@ -209,6 +212,7 @@ def category_best_sellers(
                 ranked_by_category,
                 lambda device: out_of_band(state, device),
                 leader(state),
+                (seen_in_history or {}).get(request.get("user_id") or "", frozenset()),
             )
         last_category = category(viewed[-1], state) if viewed else None
         ranked = candidates(last_category, request.get("user_id"), state)
@@ -247,6 +251,7 @@ def cold_start_answer(
     ranked_by_category: Mapping[str, Sequence[str]] | None = None,
     out_of_band: Callable[[str], AbstractSet[str]] | None = None,
     leader: tuple[str, int] | None = None,
+    left_behind_history: AbstractSet[str] = frozenset(),
 ) -> list[str]:
     """The answer to a cold request, built from the live trend (`trending`: products, highest first).
 
@@ -263,9 +268,9 @@ def cold_start_answer(
     now (`state.hot_subcategories`) come before the rest of the category's trend and best sellers, the
     hottest subcategory first.
 
-    A returning shopper (cold because they viewed a new product) never sees what they viewed, in the session
-    or today, unless they carted it: in our carousel those products sold at 0.4-0.5x the average shown
-    product, carts at 5.4x (#5). A new shopper's views stay: for them a viewed product sold 3.2-4.8x (#8).
+    A returning shopper (cold because they viewed a new product) never sees `left_behind_history`: products
+    they viewed in the history and never bought or carted (0.5x the average shown product, #5). Today's
+    views (`recent_views`, `state.shopper_viewed`) stay: a product viewed once today sold 1.9x. Carts stay.
 
     Each category the shopper viewed gets a share of the ANSWER_SIZE slots in proportion to its views
     (largest remainder; a tie goes to the category viewed last). Blocks follow by share, ties again to the
@@ -279,10 +284,9 @@ def cold_start_answer(
     bought = owned | state.recent_purchases.get(user_id, frozenset())
     left_behind: AbstractSet[str] = frozenset()
     if not request.get("is_new_user"):
-        left_behind = {
-            *viewed,
-            *state.shopper_viewed.get(user_id, ()),
-        } - state.shopper_carted.get(user_id, frozenset())
+        left_behind = left_behind_history - state.shopper_carted.get(
+            user_id, frozenset()
+        )
     answer: list[str] = []
 
     def add(product_id: str) -> None:
@@ -311,14 +315,12 @@ def cold_start_answer(
         if (category := category_of(product_id)) is not None:
             views[category] += 1
             last_view[category] = (position, product_id)
-    day_viewed: Sequence[str] = ()
+    day_viewed: Sequence[str] = state.shopper_viewed.get(user_id, ())
     if not views:
         day = Counter(state.shopper_categories.get(user_id, {}))
         for rank, (c, n) in enumerate(day.most_common(BLANK_DAY_CATEGORIES)):
             views[c] = n
             last_view[c] = (-rank, "")  # ties go to the day's leading category
-        if views:
-            day_viewed = state.shopper_viewed.get(user_id, ())
     carted: dict[str, list[str]] = defaultdict(list)
     for product_id in sorted(
         state.shopper_carted.get(user_id, ()),

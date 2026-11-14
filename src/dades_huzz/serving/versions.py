@@ -21,6 +21,7 @@ from dades_huzz.features import (
     live_category_signals,
     median_log_prices,
     shopper_carts,
+    shopper_history_views,
     shopper_profiles,
     shopper_purchases,
 )
@@ -161,13 +162,21 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         keep_viewed=True,
         viewed_first=3,
         cold_start=True,
+        seen_in_history=shopper_history_views(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
     ),
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
     "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
     "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
-        **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
+        **vars(live_category_signals(rawtree)),
+        keep_viewed=True,
+        cold_start=True,
+        seen_in_history=shopper_history_views(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
     ),
     "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
     "tati-omega-plus-day": lambda rawtree: _omega(rawtree, day_weight=3.0),
@@ -193,6 +202,9 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
             keep_viewed=True,
             cold_start=True,
             bought=shopper_purchases(
+                rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+            ),
+            seen_in_history=shopper_history_views(
                 rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
             ),
         ),

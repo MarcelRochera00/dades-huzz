@@ -355,3 +355,17 @@ def test_shopper_carts_are_each_shoppers_unbought_carts_latest_first():
     assert shopper_carts(CartsRawTree(), until="2026-11-14 12:00:00") == {
         "u_1": ("p_new", "p_old")
     }
+
+
+class HistoryViewsRawTree:
+    def query(self, sql, timeout=10):
+        assert "event_type::String = 'view'" in sql and "add_to_cart" in sql and "NOT IN" in sql
+        return [{"user_id": "u_1", "products": ["p_seen"]}]
+
+
+def test_shopper_history_views_are_viewed_in_the_history_and_neither_bought_nor_carted():
+    from dades_huzz.features import shopper_history_views
+
+    assert shopper_history_views(
+        HistoryViewsRawTree(), until="2026-11-14 12:00:00"
+    ) == {"u_1": frozenset({"p_seen"})}

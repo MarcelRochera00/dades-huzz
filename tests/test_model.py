@@ -359,14 +359,22 @@ def test_a_returning_shopper_who_views_a_new_product_is_cold_too():
     state = _cold_state({"n_1": 5, "hot": 9}, extra={"n_new"}, new_products={"n_new"})
     state = State(**{**vars(state), "category": {"n_new": "toys", "n_1": "toys"}})
     request = {"is_new_user": False, "recent_views": [{"product_id": "n_new"}]}
-    assert recommend(request, state)[:2] == ["n_1", "hot"]
+    assert recommend(request, state)[:3] == ["n_new", "n_1", "hot"]
 
 
-def test_a_cold_returning_shopper_never_sees_what_they_viewed_and_did_not_buy_but_keeps_carts():
-    # returning shoppers do not buy what they looked at and left (0.4-0.5x the average shown product, #5);
-    # carts sell (5.4x), so a carted product stays even if it was viewed
-    recommend = _cold_recommend({})
-    trend = {"n_1": 5, "n_2": 4, "hot": 9}
+def test_a_cold_returning_shopper_never_sees_what_they_viewed_in_the_history_and_left():
+    # viewed in history and not bought: 0.5x (#5). Today's views stay (1.9x once, Colossus live);
+    # a history view that they carted today stays too
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={},
+        keep_viewed=True,
+        cold_start=True,
+        seen_in_history={"u1": frozenset({"n_hist", "n_cart"})},
+    )
+    trend = {"n_hist": 8, "n_1": 5, "n_2": 4, "hot": 9}
     state = _cold_state(trend, extra={"n_new", "n_old", "n_day", "n_cart"})
     category = {p: "toys" for p in (*trend, "n_new", "n_old", "n_day", "n_cart")}
     state = State(
@@ -374,7 +382,7 @@ def test_a_cold_returning_shopper_never_sees_what_they_viewed_and_did_not_buy_bu
             **vars(state),
             "new_products": frozenset({"n_new"}),
             "category": category,
-            "shopper_viewed": {"u1": ("n_day", "n_cart")},
+            "shopper_viewed": {"u1": ("n_day",)},
             "shopper_carted": {"u1": frozenset({"n_cart"})},
         }
     )
@@ -385,8 +393,8 @@ def test_a_cold_returning_shopper_never_sees_what_they_viewed_and_did_not_buy_bu
         "recent_views": [{"product_id": p} for p in views],
     }
     answer = recommend(request, state)
-    assert answer[:4] == ["n_cart", "hot", "n_1", "n_2"]
-    assert not {"n_new", "n_old", "n_day"} & set(answer)
+    assert "n_hist" not in answer
+    assert answer[:5] == ["n_cart", "n_new", "n_old", "n_day", "hot"]
 
 
 def test_a_cold_answer_leaves_out_what_the_shopper_bought_in_the_history():

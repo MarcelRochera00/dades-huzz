@@ -96,6 +96,27 @@ GROUP BY user_id"""
 """Each shopper's products added to the cart in the history and never bought (history or live), latest cart
 first. About 51,000 shoppers, median 5 products, in about 2 s."""
 
+SHOPPER_HISTORY_VIEWS = """
+SELECT user_id, arraySlice(
+    arrayMap(x -> x.2, arrayReverseSort(x -> x.1, groupArray((last_view, product_id)))), 1, 20
+) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id, max(ts::DateTime64(3)) AS last_view
+    FROM shop.history_events
+    WHERE event_type::String = 'view' AND ts::DateTime64(3) < '{until}'
+    GROUP BY user_id, product_id
+)
+WHERE (user_id, product_id) NOT IN (
+    SELECT user_id::String, product_id::String FROM shop.history_events
+    WHERE event_type::String IN ('purchase', 'add_to_cart') AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String, product_id::String FROM shop.events
+    WHERE event_type::String = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
+GROUP BY user_id"""
+"""Each shopper's last 20 products viewed in the history and never bought or carted, latest first. Shown to
+returning shoppers they sold at 0.5x the average (issue #5); today's views are `State.shopper_viewed`."""
+
 
 @dataclass(frozen=True)
 class CategorySignals:
@@ -440,6 +461,15 @@ def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]
     return {
         row["user_id"]: frozenset(row["products"])
         for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
+    }
+
+
+def shopper_history_views(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]:
+    """Each shopper's last 20 products viewed in the history and never bought or carted: cold returning
+    shoppers do not see these (issue #5, 0.5x). Today's views stay."""
+    return {
+        row["user_id"]: frozenset(row["products"])
+        for row in rawtree.query(SHOPPER_HISTORY_VIEWS.format(until=until), timeout=120)
     }
 
 
