@@ -493,6 +493,59 @@ def cold_first(base: Recommend, cold: Recommend) -> Recommend:
     return recommend
 
 
+HOT_SLOTS = (1, 2)
+"""Where a trending subcategory's products go: slots 2 and 3, under the base answer's first pick."""
+
+
+def hot_first(
+    base: Recommend,
+    ranked_by_category: Mapping[str, Sequence[str]],
+    bought: Mapping[str, AbstractSet[str]] | None = None,
+) -> Recommend:
+    """While a subcategory trends (`state.hot_subcategories`, #64), the best sellers of the hottest one in its
+    category's live ranking take slots 2 and 3; the base answer keeps its order around them. Unavailable
+    products and what the shopper bought, in the history (`bought`) or just now, are skipped. With nothing
+    trending, the base answer is unchanged."""
+    category_cache: list[tuple[object, dict[str, str]]] = [(None, {})]
+
+    def category_of_subcategory(state: State) -> dict[str, str]:
+        source, mapping = category_cache[0]
+        if source is not state.subcategory:
+            mapping = {}
+            for product_id, sub in state.subcategory.items():
+                if sub not in mapping and product_id in state.category:
+                    mapping[sub] = state.category[product_id]
+            category_cache[0] = (state.subcategory, mapping)
+        return mapping
+
+    def recommend(request: Record, state: State) -> list[str]:
+        answer = base(request, state)
+        hot = state.hot_subcategories
+        if not hot:
+            return answer
+        hottest = max(hot, key=lambda sub: (hot[sub], sub))
+        category = category_of_subcategory(state).get(hottest)
+        user = str(request.get("user_id") or "")
+        owned = (bought or {}).get(user, frozenset()) | state.recent_purchases.get(
+            user, frozenset()
+        )
+        picks = [
+            p
+            for p in ranked_by_category.get(category or "", ())
+            if state.subcategory.get(p) == hottest
+            and p in state.available
+            and p not in owned
+        ][: len(HOT_SLOTS)]
+        if not picks:
+            return answer
+        rest = [p for p in answer if p not in picks]
+        for slot, product_id in zip(HOT_SLOTS, picks, strict=False):
+            rest.insert(slot, product_id)
+        return rest[:ANSWER_SIZE]
+
+    return recommend
+
+
 def cart_first(
     base: Recommend,
     carts: Mapping[str, Sequence[str]],

@@ -926,3 +926,32 @@ def test_cold_first_sends_cold_requests_to_the_cold_answer_and_the_rest_to_the_b
         {**returning, "recent_views": [{"product_id": "a_new"}]}, state
     ) == ["cold"]
     assert recommend(returning, state) == ["base"]
+
+
+def test_hot_first_puts_the_hottest_subcategorys_live_best_sellers_in_slots_2_and_3():
+    from dataclasses import replace
+
+    from dades_huzz.model import hot_first
+
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    state = replace(
+        _lauri_state(
+            subcategory={
+                p: "kettles" if p in ("b_7", "b_9", "b_3") else p[0] for p in products
+            }
+        ),
+        hot_subcategories={"kettles": 6.3, "a": 2.1},
+        recent_purchases={"u": frozenset({"b_3"})},
+    )
+    ranked = {"a": [f"a_{i}" for i in range(12)], "b": ["b_3", "b_9", "b_0", "b_7"]}
+
+    def base(request, state):
+        return [f"a_{i}" for i in range(10)]
+
+    recommend = hot_first(base, ranked, bought={"u": frozenset({"b_9"})})
+    answer = recommend({"user_id": "u", "recent_views": []}, state)
+    # b_3 bought just now and b_9 in the history are skipped; only b_7 is left of the hottest
+    assert answer[:3] == ["a_0", "b_7", "a_1"]
+    assert len(answer) == 10 == len(set(answer))
+    calm = replace(state, hot_subcategories={})
+    assert recommend({"user_id": "u", "recent_views": []}, calm) == base(None, None)
