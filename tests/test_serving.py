@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from dades_huzz.data import State
 from dades_huzz.serving import answer, decide_role, repair, validate
+from dades_huzz.serving.handover import Handover
 from dades_huzz.serving.loop import LiveState
 from dades_huzz.serving.versions import Split
 
@@ -337,3 +338,28 @@ def test_a_slow_events_read_never_holds_up_the_stock_refresh():
         time.sleep(0.15)
         oldest_ms = max(oldest_ms, int(time.time() * 1000) - live.refreshed_ms)
     assert oldest_ms < 1000
+
+
+class HeartbeatRawTree:
+    def __init__(self) -> None:
+        self.inserted: list[dict] = []
+
+    def server_now_ms(self):
+        return int(time.time() * 1000)
+
+    def insert(self, table, rows):
+        self.inserted.extend(rows)
+
+    def heartbeats_since(self, since_ms):
+        return []
+
+
+def test_the_heartbeat_carries_the_split_in_force_and_the_versions_left_out():
+    rawtree = HeartbeatRawTree()
+    Handover(
+        rawtree,
+        details=lambda: {"versions": "a=50,b=50", "out": "b"},
+    )
+    beat = rawtree.inserted[0]
+    assert beat["kind"] == "heartbeat"
+    assert (beat["versions"], beat["out"]) == ("a=50,b=50", "b")

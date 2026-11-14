@@ -283,7 +283,14 @@ def serve(
     split = load_versions(lambda load, what: until_ok(load, what, starting))
     print(f"versions: {split.shares} (champion: {split.champion})", flush=True)
     cursor = RequestCursor(MAX_AGE_MS)
-    turn = Handover(rawtree, enabled=handover)
+    turn = Handover(
+        rawtree,
+        enabled=handover,
+        details=lambda: {
+            "versions": split.describe(),
+            "out": ",".join(sorted(split.taken_out())),
+        },
+    )
     was_active = not handover
     log_path.parent.mkdir(parents=True, exist_ok=True)
     answered = errors = 0

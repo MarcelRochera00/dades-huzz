@@ -137,3 +137,9 @@ def test_conversion_interval_matches_a_worked_example():
 
 def test_the_default_split_names_only_known_versions():
     assert set(parse_split(DEFAULT_SPLIT)) <= set(VERSIONS)
+
+
+def test_the_split_reads_back_as_written_champion_first():
+    split = Split({"a": champion, "b": challenger}, {"a": 70, "b": 30})
+    assert split.describe() == "a=70,b=30"
+    assert parse_split(split.describe()) == {"a": 70, "b": 30}
