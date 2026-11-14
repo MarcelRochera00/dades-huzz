@@ -81,7 +81,8 @@ reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request
 `out_of_stock`.
 
 **Handover**: how the serving loop moves between laptops: every loop sends a heartbeat, one is *active*
-(answers) and the others are *standby* (wait), and a standby takes over when the active one goes silent.
+(answers) and the others are *standby* (wait). When the active one goes silent, the standby that started first
+takes over.
 _Avoid_: failover, leader election.
 
 **Tati**: our recommender as a product. Each model version that beats the live champion takes the next

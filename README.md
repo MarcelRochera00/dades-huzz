@@ -117,8 +117,8 @@ the terminal open and the laptop plugged in. Stop it with Ctrl-C.
    ([docs/challenge/qa.md](docs/challenge/qa.md)). Nothing to restart. If the loop ever logs
    `catalogue changed: ...`, restart through the handover above, because models load their lists only at start.
 3. 10:00–12:00: the leaderboard is hidden. Run `check_serving.py --minutes 15` every 15 minutes, and keep
-   one teammate's loop in `standby` as a spare. Never two spares: if the active loop stops, both could
-   answer for a few seconds.
+   one teammate's loop in `standby` as a spare, started with the same `--versions`. More spares are safe:
+   if the active loop stops, only the one that started first takes over.
 
 ## Lane D dashboard
 
