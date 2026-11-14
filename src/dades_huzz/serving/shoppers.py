@@ -8,6 +8,7 @@ The day starts at the stream's start. At start-up it is backfilled from RawTree 
 to a cut; after that only new rows are read, every few seconds, and counted here.
 """
 
+import gc
 import sys
 from collections.abc import Callable, Iterable
 
@@ -50,7 +51,7 @@ GROUP BY u, c"""
 BACKFILL_CARTED = f"""
 SELECT user_id::String AS u, product_id::String AS p
 FROM shop.events
-WHERE event_type::String IN ('add_to_cart', 'purchase') AND {_BEFORE}
+WHERE event_type::String IN ('add_to_cart', 'purchase') AND {_BEFORE} AND {_SHARD}
 GROUP BY u, p
 HAVING maxIf(ts::DateTime64(3), event_type::String = 'add_to_cart')
      > maxIf(ts::DateTime64(3), event_type::String = 'purchase')"""
@@ -70,16 +71,27 @@ def read_events_since(rawtree: RawTree, since_ms: int) -> list[Record]:
 
 
 def read_backfill(
-    rawtree: RawTree, until_ms: int
+    rawtree: RawTree,
+    until_ms: int,
+    after_each: Callable[[], object] = gc.freeze,
 ) -> tuple[list[Record], list[Record], list[Record]]:
-    """The day before `until_ms`, aggregated in RawTree: (categories, carted, viewed) rows for `add_backfill`."""
+    """The day before `until_ms`, aggregated in RawTree: (categories, carted, viewed) rows for `add_backfill`.
+
+    Read in SHARDS slices of shoppers. After each query `after_each` freezes what is loaded so far
+    (`gc.freeze`): a full garbage-collector pass over hundreds of thousands of fresh rows stops every thread,
+    the answering loop included, for 80-150 ms (#59). Frozen objects are still freed as usual when unused."""
     categories: list[Record] = []
+    carted: list[Record] = []
     viewed: list[Record] = []
     for shard in range(SHARDS):
         cut = {"until_ms": int(until_ms), "shards": SHARDS, "shard": shard}
-        categories += rawtree.query(BACKFILL_CATEGORIES.format(**cut), timeout=30)
-        viewed += rawtree.query(BACKFILL_VIEWED.format(**cut), timeout=30)
-    carted = rawtree.query(BACKFILL_CARTED.format(until_ms=int(until_ms)), timeout=30)
+        for rows, sql in (
+            (categories, BACKFILL_CATEGORIES),
+            (carted, BACKFILL_CARTED),
+            (viewed, BACKFILL_VIEWED),
+        ):
+            rows += rawtree.query(sql.format(**cut), timeout=30)
+            after_each()
     return categories, carted, viewed
 
 

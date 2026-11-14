@@ -33,7 +33,16 @@ def main() -> None:
             f"unknown versions {sorted(unknown)}; known: {', '.join(VERSIONS)}"
         )
     rawtree = RawTree.from_env()
+    started = time.monotonic()
     live = LiveState(rawtree)
+    # Measure with the whole shoppers' day in State, as a running loop has it; its backfill is a start-up cost.
+    startup = main_thread_wait_ms(180, until=live.shoppers_ready)
+    print(
+        f"shoppers' day in State after {time.monotonic() - started:.0f} s"
+        f" ({len(live.state.shopper_categories)} shoppers); worst extra wait of the main thread meanwhile"
+        f" {startup:.0f} ms (once per loop start)",
+        flush=True,
+    )
     since_ms = int(time.time() * 1000 - args.minutes * 60_000)
     requests = [
         as_request(row)
@@ -52,7 +61,8 @@ def main() -> None:
         )
     worst = main_thread_wait_ms(args.watch)
     print(
-        f"{args.watch:.0f} s with {', '.join(args.versions)} loaded: worst extra wait of the main thread {worst:.0f} ms"
+        f"{args.watch:.0f} s with {', '.join(args.versions)} loaded, after the backfill: worst extra wait of the main"
+        f" thread {worst:.0f} ms"
         f" (about 6 ms with no extra version); threads {threading.active_count()}",
         flush=True,
     )

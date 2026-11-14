@@ -11,6 +11,7 @@ laptops (`versions.load_split` records it). One that cannot load is left out, an
 share. The versions themselves are listed in `versions.py`.
 """
 
+import gc
 import hashlib
 import threading
 import time
@@ -177,6 +178,9 @@ def measure_version(
     load_s = time.perf_counter() - started
     load_mb = tracemalloc.get_traced_memory()[0] / 2**20
     tracemalloc.stop()
+    gc.freeze()  # as serve() does once the versions are loaded (#59)
+    if requests:  # untimed: the first call after tracemalloc costs ~190 ms that a serving loop never sees (#59)
+        recommend(requests[0], state)
     times, invalid, differs = [], 0, 0
     for request in requests:
         started = time.perf_counter()
@@ -200,11 +204,13 @@ def measure_version(
     }
 
 
-def main_thread_wait_ms(seconds: float, step_s: float = 0.05) -> float:
-    """The longest extra wait of a 50 ms sleep in this thread over `seconds`: what background work started by
-    the loaded versions (refresh threads) would add to the answering loop."""
+def main_thread_wait_ms(
+    seconds: float, step_s: float = 0.05, until: threading.Event | None = None
+) -> float:
+    """The longest extra wait of a 50 ms sleep in this thread over `seconds` (or until `until` is set): what
+    background work started by the loop or the loaded versions would add to the answering loop."""
     worst, end = 0.0, time.monotonic() + seconds
-    while time.monotonic() < end:
+    while time.monotonic() < end and not (until and until.is_set()):
         started = time.perf_counter()
         time.sleep(step_s)
         worst = max(worst, (time.perf_counter() - started - step_s) * 1000)

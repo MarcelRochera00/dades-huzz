@@ -255,3 +255,13 @@ def test_a_slow_shoppers_read_never_holds_up_the_stock_refresh():
         time.sleep(0.15)
         oldest_ms = max(oldest_ms, int(time.time() * 1000) - live.refreshed_ms)
     assert oldest_ms < 1000
+
+
+def test_the_loop_says_when_the_shoppers_day_is_backfilled():
+    live = LiveState(
+        ChangingRawTree(["p_1"]),
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], []),
+        read_events=lambda since_ms: [],
+    )
+    assert live.shoppers_ready.wait(timeout=3)

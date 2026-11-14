@@ -4,6 +4,7 @@ Nothing here may stop the loop: shoppers keep arriving while we sleep, and a req
 the fallback. Every failure is logged and the loop carries on.
 """
 
+import gc
 import json
 import threading
 import time
@@ -128,6 +129,9 @@ class LiveState:
         )
         self._read_day = read_day or (lambda until: read_backfill(rawtree, until))
         self.shoppers: Snapshot = ({}, {}, {})
+        self._shoppers_backfilled = False
+        self.shoppers_ready = threading.Event()
+        """Set once the shoppers' day is backfilled: from then on `State.shopper_*` covers the whole day."""
         self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
         self.best_sellers = until_ok(rawtree.best_sellers, "best sellers", on_retry)
         self.updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
@@ -162,6 +166,7 @@ class LiveState:
             if not backfilled and time.monotonic() >= backfill_due:
                 try:
                     day.add_backfill(*self._read_day(start_ms))
+                    gc.freeze()  # 73k shoppers' values: never walked again by a full collection (#59)
                     backfilled = True
                     print(
                         f"shoppers' day backfilled: {len(day.snapshot()[0])} shoppers",
@@ -180,6 +185,7 @@ class LiveState:
                     self.state.category.get,
                 )
                 self.shoppers = day.snapshot()
+                self._shoppers_backfilled = backfilled
             except Exception as e:  # noqa: BLE001  keep the last snapshot
                 print(f"shoppers' events read failed: {str(e)[:120]}", flush=True)
             time.sleep(every_s)
@@ -251,6 +257,8 @@ class LiveState:
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
         )
         self.state = state
+        if self._shoppers_backfilled:
+            self.shoppers_ready.set()
         self.refreshed_ms = now_ms()
 
     def _refresh_forever(self) -> None:
@@ -341,6 +349,7 @@ def serve(
     starting()
     live = LiveState(rawtree, on_retry=starting)
     split = load_versions(lambda load, what: until_ok(load, what, starting))
+    gc.freeze()  # the versions' loaded data (profiles, rankings): kept out of full collections (#59)
     print(f"versions: {split.shares} (champion: {split.champion})", flush=True)
     cursor = RequestCursor(MAX_AGE_MS)
     turn = Handover(

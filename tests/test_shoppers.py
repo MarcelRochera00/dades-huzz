@@ -1,4 +1,4 @@
-from dades_huzz.serving.shoppers import ShopperDay
+from dades_huzz.serving.shoppers import SHARDS, ShopperDay, read_backfill
 
 CATEGORY = {"p_toy1": "Toys", "p_toy2": "Toys", "p_tv": "Electronics"}.get
 
@@ -87,3 +87,21 @@ def test_an_event_of_an_unknown_product_still_counts_as_viewed():
     categories, _, viewed = day.snapshot()
     assert categories == {}
     assert viewed == {"u1": ("p_new",)}
+
+
+class CountingRawTree:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def query(self, sql, timeout=10):
+        self.queries.append(sql)
+        return []
+
+
+def test_the_backfill_reads_every_kind_in_slices_and_freezes_after_each():
+    rawtree, freezes = CountingRawTree(), []
+    read_backfill(rawtree, until_ms=1_000, after_each=lambda: freezes.append(1))
+    # categories, carts and views, each in SHARDS slices
+    assert len(rawtree.queries) == 3 * SHARDS
+    assert all(f"% {SHARDS} = " in sql for sql in rawtree.queries)
+    assert len(freezes) == 3 * SHARDS
