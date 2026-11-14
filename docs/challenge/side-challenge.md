@@ -52,15 +52,18 @@ The practice leaderboard chart uses the organizers' expected purchase rates and 
 
 ### Jury view
 
-The presenter explicitly selects a version. Show its name, the date and time range, total
-purchases, total sales in euros, purchases per 100 times shoppers saw that version's recommendations,
-and one chart of purchases over time. The sales figures and purchase rate use feedback that
-confirms shoppers saw the selected version's list. Default to the Sunday final, 10:00–12:00
-Barcelona time, once final-round feedback is available. Until then, show results labeled **Practice**.
+Open with a documented practice comparison of Tati Destroyer and in-stock best sellers, using
+expected purchases for both versions in the same time window. Label these as simulator estimates
+and use them to explain what a controlled store pilot should measure.
 
-Display the official team score separately once the organizers publish it. The sales cards show
-purchases that happened in the simulation. The official score uses the simulator's purchase
-probabilities and other scoring components.
+Show observed simulated sales, purchases, and purchases per 100 confirmed displays for the selected
+version. The chart defaults to purchase rate over time and can show raw purchase counts. Each window
+shows its display count. Default to the Sunday final, 10:00–12:00 Barcelona time, once final-round
+feedback is available. Until then, show results labeled **Practice**. Preselect the version with
+the most confirmed displays in the round and allow the presenter to choose another version.
+
+Keep the official team score available separately once the organizers publish it. It uses the
+simulator’s purchase probabilities and other scoring components.
 
 ### Data and refresh
 

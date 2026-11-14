@@ -16,7 +16,7 @@ class FakeRawTree:
         return self.rows
 
 
-def test_cold_requests_and_purchases_are_counted_per_assigned_version():
+def test_shopper_and_cold_counts_follow_assigned_version_and_feedback():
     period = SplitPeriod(
         datetime(2026, 11, 14, 17, tzinfo=UTC),
         datetime(2026, 11, 14, 18, tzinfo=UTC),
@@ -33,6 +33,8 @@ def test_cold_requests_and_purchases_are_counted_per_assigned_version():
                 "finished": 1,
                 "requests": 10,
                 "purchases": 2,
+                "new_requests": 3,
+                "new_purchases": 1,
                 "cold_requests": 4,
                 "cold_purchases": 1,
             },
@@ -42,6 +44,8 @@ def test_cold_requests_and_purchases_are_counted_per_assigned_version():
                 "finished": 0,
                 "requests": 3,
                 "purchases": 0,
+                "new_requests": 2,
+                "new_purchases": 0,
                 "cold_requests": 2,
                 "cold_purchases": 0,
             },
@@ -52,7 +56,20 @@ def test_cold_requests_and_purchases_are_counted_per_assigned_version():
                 "finished": 1,
                 "requests": 8,
                 "purchases": 1,
+                "new_requests": 0,
+                "new_purchases": 0,
                 "cold_requests": 5,
+                "cold_purchases": 1,
+            },
+            {
+                **row,
+                "assigned_index": 2,
+                "finished": 1,
+                "requests": 2,
+                "purchases": 1,
+                "new_requests": 2,
+                "new_purchases": 1,
+                "cold_requests": 2,
                 "cold_purchases": 1,
             },
         ]
@@ -60,8 +77,11 @@ def test_cold_requests_and_purchases_are_counted_per_assigned_version():
 
     a, b = read_split_stats(rawtree, period).rows
 
+    assert (a.new_assigned, a.new_completed, a.new_purchases) == (5, 3, 1)
+    assert (b.new_assigned, b.new_completed, b.new_purchases) == (2, 2, 1)
+    assert b.champion_backups == 2
     assert (a.cold_completed, a.cold_purchases) == (4, 1)
-    assert (b.cold_completed, b.cold_purchases) == (5, 1)
+    assert (b.cold_completed, b.cold_purchases) == (7, 2)
     assert "new_product" in rawtree.sql and "is_new_user" in rawtree.sql
 
 

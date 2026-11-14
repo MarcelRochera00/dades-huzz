@@ -1,5 +1,6 @@
 """Private Streamlit dashboard for the RawTree team and jury demo."""
 
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from html import escape
@@ -13,7 +14,12 @@ from requests import RequestException
 
 from dades_huzz.dashboard_jury import (
     FINAL_START_MS,
+    JURY_BUCKET_MS,
+    PRACTICE_BEST_SELLERS,
+    PRACTICE_DESTROYER,
+    PRACTICE_LIFT_PCT,
     PRACTICE_START_MS,
+    JuryBucket,
     JuryData,
     JuryPeriod,
     load_jury_data,
@@ -415,6 +421,35 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
             "(the official cold definition, 10 of the 100 points)."
         )
         show_purchase_differences(stats)
+        show_shopper_purchases(stats)
+
+
+def show_shopper_purchases(stats: SplitStats) -> None:
+    st.markdown("**Purchases by shopper type**")
+    shopper_results = []
+    for row in stats.rows:
+        cohorts = (
+            ("New", row.new_assigned, row.new_completed, row.new_purchases),
+            (
+                "Returning",
+                row.assigned - row.new_assigned,
+                row.completed - row.new_completed,
+                row.purchases - row.new_purchases,
+            ),
+        )
+        for shopper_type, assigned, completed, purchases in cohorts:
+            shopper_results.append(
+                {
+                    "Assigned version": row.version,
+                    "Shopper type": shopper_type,
+                    "Requests": assigned,
+                    "With feedback": completed,
+                    "Purchases / 100 with feedback": (
+                        f"{100 * purchases / completed:.2f}" if completed else "—"
+                    ),
+                }
+            )
+    st.dataframe(shopper_results, hide_index=True, width="stretch")
 
 
 def show_purchase_differences(stats: SplitStats) -> None:
@@ -528,21 +563,149 @@ def store_trends(end: datetime) -> None:
     st.altair_chart(chart_style(comparison), theme=None, width="stretch")
 
 
-def jury_score() -> None:
-    st.divider()
-    st.subheader("Official team score")
-    state = fetch_latest("official_score", scoreboard)
-    score = official_team_score(state, RawTree.from_env().team) if state else None
-    if score is None:
-        st.caption(
-            "The official team score will appear here once the organizers publish it."
+def jury_benchmark() -> None:
+    arms = (PRACTICE_DESTROYER, PRACTICE_BEST_SELLERS)
+    labels = [arm.label for arm in arms]
+    frame = pd.DataFrame(
+        {
+            "Recommendation": labels,
+            "Expected purchases per 100": [arm.expected_per_100 for arm in arms],
+            "Requests": [arm.requests for arm in arms],
+        }
+    )
+    with st.container(key="jury-benchmark", border=True):
+        st.subheader("Personalized recommendations vs. best sellers")
+        st.caption("Practice experiment · 14 Nov, 15:30–15:50 Barcelona time")
+        impact, comparison = st.columns([1, 2])
+        with impact:
+            st.metric("Higher expected purchase rate", f"+{PRACTICE_LIFT_PCT:.0f}%")
+        with comparison:
+            bars = alt.Chart(frame).encode(
+                x=alt.X(
+                    "Expected purchases per 100:Q",
+                    title="Expected purchases per 100 requests",
+                    scale=alt.Scale(domain=[0, 1.2]),
+                ),
+                y=alt.Y("Recommendation:N", sort=labels, title=None),
+            )
+            chart = bars.mark_bar(size=19, cornerRadiusEnd=3).encode(
+                color=alt.Color(
+                    "Recommendation:N",
+                    scale=alt.Scale(
+                        domain=labels,
+                        range=[version_style(arm.version).colour for arm in arms],
+                    ),
+                    legend=None,
+                ),
+                tooltip=[
+                    "Recommendation:N",
+                    alt.Tooltip("Expected purchases per 100:Q", format=".3f"),
+                    alt.Tooltip("Requests:Q", format=","),
+                ],
+            ) + bars.mark_text(align="left", dx=6, color="#172735").encode(
+                text=alt.Text("Expected purchases per 100:Q", format=".3f")
+            )
+            st.altair_chart(
+                chart_style(chart.properties(height=100)), theme=None, width="stretch"
+            )
+        st.markdown(
+            "Destroyer used in-stock best sellers from the category the shopper last browsed. "
+            "The comparison used the store’s overall in-stock best sellers."
         )
-    else:
-        st.metric("Official team score", f"{score:.2f} / 100", border=True)
+        st.caption(
+            "RawTree simulator estimates from a same-window split test "
+            f"({PRACTICE_DESTROYER.requests:,} Destroyer requests and "
+            f"{PRACTICE_BEST_SELLERS.requests:,} best-seller requests)."
+        )
+
+
+def jury_trend(rows: list[JuryBucket]) -> None:
+    st.subheader("Sales activity over time")
+    rate_label = "Purchases per 100 displays"
+    metric = st.radio(
+        "Chart metric",
+        [rate_label, "Purchases"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="jury-trend-metric",
+    )
+    frame = pd.DataFrame(
+        [
+            {
+                "From": barcelona_chart_time(
+                    datetime.fromtimestamp(row.start_ms / 1000, UTC)
+                ),
+                "To": barcelona_chart_time(
+                    datetime.fromtimestamp((row.start_ms + JURY_BUCKET_MS) / 1000, UTC)
+                ),
+                "Window": local_time(row.start_ms / 1000),
+                rate_label: 100 * row.purchases / row.shown,
+                "Purchases": row.purchases,
+                "Confirmed displays": row.shown,
+            }
+            for row in rows
+            if row.shown
+        ]
+    )
+    timeline = alt.Chart(frame).encode(
+        x=alt.X(
+            "From:T",
+            title="Barcelona time",
+            scale=alt.Scale(type="utc"),
+            axis=alt.Axis(format="%d %b %H:%M", labelOverlap=True),
+        ),
+        y=alt.Y(f"{metric}:Q", title=metric),
+        tooltip=[
+            "Window:N",
+            alt.Tooltip("Confirmed displays:Q", format=","),
+            alt.Tooltip("Purchases:Q", format=","),
+            alt.Tooltip(f"{rate_label}:Q", format=".2f"),
+        ],
+    )
+    bars = timeline.mark_bar(
+        color=TEAL, cornerRadiusTopLeft=3, cornerRadiusTopRight=3
+    ).encode(x2="To:T")
+    zero_marks = timeline.transform_filter(alt.datum[metric] == 0).mark_tick(
+        color=TEAL, size=8, thickness=2
+    )
+    st.altair_chart(
+        chart_style((bars + zero_marks).properties(height=230)),
+        theme=None,
+        width="stretch",
+    )
+    st.caption(
+        "Results are grouped into 10-minute windows. The latest window may still be filling. "
+        "If conversion falls across several windows with comparable traffic, check stock "
+        "availability and the mix of shoppers before expanding a pilot."
+    )
+
+
+def jury_score() -> None:
+    with st.expander("Official competition score"):
+        state = fetch_latest("official_score", scoreboard)
+        score = official_team_score(state, RawTree.from_env().team) if state else None
+        if score is None:
+            st.caption(
+                "The official team score will appear here once the organizers publish it."
+            )
+        else:
+            st.metric("Official team score", f"{score:.2f} / 100", border=True)
 
 
 def jury_view() -> None:
-    st.title("Recommendation results")
+    st.title("More relevant product recommendations")
+    st.markdown(
+        "Tati picks ten in-stock products for a store’s recommendation carousel, "
+        "using what the shopper has browsed to make the list more relevant."
+    )
+    jury_benchmark()
+    st.info(
+        "**Next step: run a controlled store pilot.** Split traffic between Tati and your "
+        "current best-seller list. Track purchases and sales per 100 eligible visits, "
+        "and check that recommendations still arrive on time before expanding the rollout."
+    )
+
+    st.subheader("What shoppers bought in the simulation")
     data = fetch_latest("jury", jury_data)
     if not data:
         jury_score()
@@ -559,75 +722,57 @@ def jury_view() -> None:
         return
     # Follow the final automatically when it first has feedback, unless the presenter picked a period.
     period_column, version_column = st.columns([1, 2])
-    chosen_period = period_column.selectbox("Round", ["Show latest round", *available])
+    chosen_period = period_column.selectbox(
+        "Round", ["Show latest round", *available], key="jury-round"
+    )
     period: JuryPeriod = periods[
         available[-1] if chosen_period == "Show latest round" else chosen_period
     ]
-    st.caption(
-        f"{period.name} · {local_time(period.start_ms / 1000)} to {local_time(period.end_ms / 1000)}"
-    )
-    st.caption(f"Feedback through {local_time(period.feedback_through_ms / 1000)}")
-    versions = sorted({row.version for row in period.rows})
+    versions: Counter[str] = Counter()
+    for row in period.rows:
+        versions[row.version] += row.shown
     if not versions:
         st.info("No team recommendations have a confirmed display in this round yet.")
         jury_score()
         return
+    version_names = sorted(versions)
+    default_version = min(version_names, key=lambda name: (-versions[name], name))
     version = version_column.selectbox(
-        "Model version",
-        versions,
-        index=None,
-        placeholder="Choose a version",
+        "Recommendation version",
+        version_names,
+        index=version_names.index(default_version),
         key=f"version:{period.name}",
     )
-    if version:
-        rows = [row for row in period.rows if row.version == version]
-        displays = sum(row.shown for row in rows)
-        purchases = sum(row.purchases for row in rows)
-        revenue = sum(row.revenue_eur for row in rows)
-        columns = st.columns(3)
-        columns[0].metric("Purchases", f"{purchases:,}", border=True)
-        columns[1].metric("Sales", f"€{revenue:,.2f}", border=True)
-        columns[2].metric(
-            "Purchases per 100 times shown",
-            f"{100 * purchases / displays:.2f}" if displays else "—",
-            border=True,
-        )
-        status = (
-            "Simulator results so far"
-            if datetime.now(UTC).timestamp() * 1000 < period.end_ms
-            else "Simulator results"
-        )
-        st.caption(f"{status} · {displays:,} confirmed displays of {version}")
-        st.subheader("Purchases over time")
-        frame = pd.DataFrame(
-            [
-                {
-                    "Time (Barcelona)": local_time(r.start_ms / 1000),
-                    "Purchases": r.purchases,
-                }
-                for r in sorted(rows, key=lambda r: r.start_ms)
-            ]
-        )
-        chart = (
-            alt.Chart(frame)
-            .mark_bar(color=TEAL, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-            .encode(
-                x=alt.X(
-                    "Time (Barcelona):O",
-                    sort=frame["Time (Barcelona)"].tolist(),
-                    title=None,
-                    axis=alt.Axis(labelAngle=-35),
-                ),
-                y=alt.Y("Purchases:Q", title=None),
-                tooltip=["Time (Barcelona):O", "Purchases:Q"],
-            )
-        )
-        st.altair_chart(
-            chart_style(chart.properties(height=285)), theme=None, width="stretch"
-        )
-        st.caption(
-            "Shows when shoppers bought after seeing this version’s recommendations."
-        )
+    rows = [row for row in period.rows if row.version == version]
+    displays = versions[version]
+    purchases = sum(row.purchases for row in rows)
+    revenue = sum(row.revenue_eur for row in rows)
+    columns = st.columns(3)
+    columns[0].metric("Simulated sales", f"€{revenue:,.2f}", border=True)
+    columns[1].metric("Simulated purchases", f"{purchases:,}", border=True)
+    columns[2].metric(
+        "Purchases per 100 displays",
+        f"{100 * purchases / displays:.2f}" if displays else "—",
+        border=True,
+    )
+    status = (
+        "Results so far"
+        if datetime.now(UTC).timestamp() * 1000 < period.end_ms
+        else "Results"
+    )
+    st.caption(
+        f"{period.name} · {status} · {displays:,} confirmed displays · "
+        f"Feedback through {local_time(period.feedback_through_ms / 1000)}"
+    )
+    st.caption(
+        f"Round window · {local_time(period.start_ms / 1000)} to "
+        f"{local_time(period.end_ms / 1000)}. Each display is one shown "
+        "recommendation list. Sales and purchases come from those displays."
+    )
+    if version in {"baseline", "best-sellers", PRACTICE_BEST_SELLERS.version}:
+        st.caption("Selected version uses the store’s overall in-stock best sellers.")
+    if displays:
+        jury_trend(rows)
     jury_score()
 
 
