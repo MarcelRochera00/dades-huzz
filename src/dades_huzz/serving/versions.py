@@ -23,6 +23,7 @@ from dades_huzz.features import (
     shopper_carts,
     shopper_profiles,
     shopper_purchases,
+    shopper_taste,
 )
 from dades_huzz.model import (
     LAURI_PER_CATEGORY,
@@ -107,12 +108,14 @@ def _lauri(
     day: bool = False,
     history_carts: bool = False,
     per_category: int = LAURI_PER_CATEGORY,
+    taste: bool = False,
 ) -> Recommend:
     """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
     ranking's products with each shopper's profile, and never showing what they bought.
     With `day`, Lauri Colossus: the shopper's day so far in `State` counts too.
     With `history_carts`, Lauri Titan+: what each shopper carted in the history and never bought joins.
-    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100)."""
+    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100).
+    With `taste`, Lauri Titan ALS: each returning shopper's taste from the history (#62) adds candidates and a weight."""
     weights = load_lauri_weights(rawtree, name)
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     ranking = LiveCategoryRanking(rawtree).start()
@@ -131,6 +134,7 @@ def _lauri(
         day=day,
         carts=shopper_carts(rawtree, until=until) if history_carts else None,
         per_category=per_category,
+        taste=shopper_taste(rawtree) if taste else None,
     )
 
 
@@ -146,11 +150,16 @@ def _cold_answer(rawtree: RawTree) -> Recommend:
     )
 
 
-def _titan_max(rawtree: RawTree) -> Recommend:
+def _titan_max(rawtree: RawTree, taste: bool = False) -> Recommend:
     """Lauri Titan max: tournament 4's pieces together. Titan+ (history carts) reaching 100 deep into each
-    category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests."""
+    category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests.
+    With `taste`, Lauri Titan ALS: the same, with the weights that also score the shopper's taste (#62)."""
     titan_plus_100 = _lauri(
-        rawtree, "lauri-titan-plus", history_carts=True, per_category=100
+        rawtree,
+        "lauri-titan-als" if taste else "lauri-titan-plus",
+        history_carts=True,
+        per_category=100,
+        taste=taste,
     )
     hot = hot_first(
         titan_plus_100,
@@ -225,6 +234,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         ),
     ),
     "lauri-titan-max": lambda rawtree: _titan_max(rawtree),
+    "lauri-titan-als": lambda rawtree: _titan_max(rawtree, taste=True),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
