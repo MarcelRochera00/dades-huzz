@@ -12,7 +12,16 @@ from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 
-from dades_huzz.data import RawTree, Record, RequestCursor, State, current_state
+from dades_huzz.data import (
+    STOCK_CHANGES,
+    RawTree,
+    Record,
+    RequestCursor,
+    State,
+    UpdateLog,
+    current_state,
+    recently_changed,
+)
 from dades_huzz.serving.handover import Handover, now_ms
 
 Recommend = Callable[[Record, State], list[str]]
@@ -21,7 +30,14 @@ Recommend = Callable[[Record, State], list[str]]
 POLL_S = 0.3
 MAX_AGE_MS = 2400
 """Requests older than this are skipped: our answer would reach RawTree after the 3 s deadline."""
-STATE_REFRESH_S = 2.0
+STATE_REFRESH_S = 0.25
+"""Stock can change at any moment: start a read of new catalogue updates this often (each read is small,
+about 0.2 s), so a change reaches the loop well under a second after it lands in RawTree."""
+LATE_UPDATE_MS = 120_000
+"""Each read of catalogue updates goes back this far, so an update that lands in RawTree up to 2 minutes
+after a newer one is still read (about 30 rows per read)."""
+RECENT_CHANGE_MS = 10_000
+"""Products whose stock changed this recently are never recommended (see `recently_changed`, issue #14)."""
 
 ANSWER_SIZE = 10
 
@@ -62,43 +78,82 @@ def until_ok[T](load: Callable[[], T], what: str) -> T:
 
 
 class LiveState:
-    """Keeps the state fresh in a background thread, so answering never waits for it."""
+    """Keeps the state fresh in a background thread, so answering never waits for it.
+
+    `allowed` is what an answer may contain right now: `state.available` minus the products whose stock
+    changed in the last RECENT_CHANGE_MS.
+    """
 
     def __init__(self, rawtree: RawTree) -> None:
         self.rawtree = rawtree
         self.catalog = until_ok(rawtree.catalog, "catalogue")
         self.best_sellers = until_ok(rawtree.best_sellers, "best sellers")
-        updates = until_ok(rawtree.catalog_updates, "catalogue updates")
-        self.state = current_state(self.catalog, updates, self.best_sellers)
-        self.refreshed_ms = now_ms()
+        self.updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
+        self.updates.add(
+            until_ok(lambda: rawtree.catalog_updates_since(0), "catalogue updates")
+        )
+        self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
+
+    def _rebuild(self) -> None:
+        state = current_state(self.catalog, self.updates.rows, self.best_sellers)
+        self.allowed = state.available - recently_changed(
+            self.updates.rows, now_ms(), RECENT_CHANGE_MS
+        )
+        self.state = state
+        self.refreshed_ms = now_ms()
 
     def _refresh_forever(self) -> None:
         while True:
-            time.sleep(STATE_REFRESH_S)
+            time.sleep(
+                max(0.0, STATE_REFRESH_S - (now_ms() - self.refreshed_ms) / 1000)
+            )
             try:
-                updates = self.rawtree.catalog_updates()
-                self.state = current_state(self.catalog, updates, self.best_sellers)
-                self.refreshed_ms = now_ms()
+                rows = self.rawtree.catalog_updates_since(
+                    self.updates.since_ms(now_ms())
+                )
             except Exception as e:  # noqa: BLE001  keep answering with the last known state
-                print(f"state refresh failed: {e}", flush=True)
+                print(f"catalogue update read failed: {e}", flush=True)
+                # refreshed_ms did not move: pause briefly so a failing read is not retried in a tight loop
+                time.sleep(STATE_REFRESH_S)
+                continue
+            new = self.updates.add(rows)
+            seen_ms = now_ms()
+            for row in (
+                new
+            ):  # logged before the rebuild, so a rebuild failure cannot hide them
+                if row["change"] in STOCK_CHANGES:
+                    print(
+                        f"stock {row['change']} {row['product_id']} at {row['ts']}"
+                        f" seen after {(seen_ms - row['ts_ms']) / 1000:.1f} s",
+                        flush=True,
+                    )
+            try:
+                self._rebuild()
+            except Exception as e:  # noqa: BLE001  keep answering with the last known state
+                print(f"state rebuild failed: {e}", flush=True)
+                time.sleep(STATE_REFRESH_S)
 
 
 def answer(
-    requests: list[Record], recommend: Recommend, model_version: str, state: State
+    requests: list[Record],
+    recommend: Recommend,
+    model_version: str,
+    state: State,
+    allowed: AbstractSet[str],
 ) -> list[Record]:
     """One valid answer per request, plus the problems that had to be repaired. The model may fail; the answer
-    may not."""
+    may not. `allowed` is stricter than `state.available` (see LiveState)."""
     answers = []
     for request in requests:
         try:
             items = recommend(request, state)
-            problems = validate(items, state.available)
+            problems = validate(items, allowed)
         except Exception:  # noqa: BLE001  a model bug must not cost the answer
             traceback.print_exc()
             items, problems = [], ["model_error"]
         if problems:
-            items = repair(items, state.available, state.fallback)
+            items = repair(items, allowed, state.fallback)
         answers.append(
             {
                 "request_id": request["request_id"],
@@ -150,7 +205,9 @@ def serve(
                     rawtree.requests_since(cursor.since_ms(now_ms())), now_ms()
                 )
                 if fresh:
-                    answers = answer(fresh, recommend, model_version, live.state)
+                    answers = answer(
+                        fresh, recommend, model_version, live.state, live.allowed
+                    )
                     rawtree.insert(
                         "submissions",
                         [

@@ -1,4 +1,10 @@
-from dades_huzz.data import RequestCursor, as_request, current_state
+from dades_huzz.data import (
+    RequestCursor,
+    UpdateLog,
+    as_request,
+    current_state,
+    recently_changed,
+)
 
 CATALOG = [
     {"product_id": "p_a", "price_eur": 10.0, "is_active": True},
@@ -122,3 +128,71 @@ def test_cursor_never_returns_a_request_another_loop_already_answered():
         r["request_id"]
         for r in cursor.accept([req("r1", 1000), req("r2", 1050)], now_ms=1200)
     ] == ["r2"]
+
+
+def stock(product_id, change, ts_ms):
+    return {
+        "product_id": product_id,
+        "change": change,
+        "ts_ms": ts_ms,
+        "ts": str(ts_ms),
+    }
+
+
+def test_products_whose_stock_changed_in_the_window_are_recent_whatever_the_direction():
+    rows = [
+        stock("p_out", "out_of_stock", 95_000),
+        stock("p_back", "back_in_stock", 99_000),
+        stock("p_old", "out_of_stock", 80_000),
+        stock("p_price", "price_change", 99_500),
+    ]
+    assert recently_changed(rows, now_ms=100_000, window_ms=10_000) == {
+        "p_out",
+        "p_back",
+    }
+
+
+def test_update_log_keeps_each_update_once_across_overlapping_reads():
+    log = UpdateLog(overlap_ms=10_000)
+    first = [stock("p_a", "out_of_stock", 50_000), stock("p_b", "price_change", 60_000)]
+    assert log.add(first) == first
+    again = [
+        stock("p_b", "price_change", 60_000),
+        stock("p_c", "back_in_stock", 61_000),
+    ]
+    assert log.add(again) == [stock("p_c", "back_in_stock", 61_000)]
+    assert len(log.rows) == 3
+
+
+def test_update_log_reads_again_from_a_bit_before_the_newest_update():
+    log = UpdateLog(overlap_ms=10_000)
+    assert log.since_ms(now_ms=100_000) == 0
+    log.add([stock("p_a", "out_of_stock", 50_000)])
+    assert log.since_ms(now_ms=100_000) == 40_000
+
+
+def test_an_update_stamped_in_the_future_does_not_hide_older_ones_landing_late():
+    log = UpdateLog(overlap_ms=10_000)
+    log.add([stock("p_future", "price_change", 500_000)])
+    assert log.since_ms(now_ms=100_000) == 90_000
+
+
+def test_two_price_changes_in_the_same_millisecond_are_both_kept():
+    log = UpdateLog(overlap_ms=10_000)
+    first = {**stock("p_a", "price_change", 50_000), "price_eur": 10.0}
+    second = {**stock("p_a", "price_change", 50_000), "price_eur": 12.0}
+    assert log.add([first, second]) == [first, second]
+
+
+def test_a_change_stamped_after_our_clock_still_counts_as_recent():
+    rows = [stock("p_back", "back_in_stock", 100_400)]
+    assert recently_changed(rows, now_ms=100_000, window_ms=10_000) == {"p_back"}
+
+
+def test_an_update_without_price_keeps_the_last_known_price():
+    rows = [
+        update("p_a", "out_of_stock", "2026-11-14 10:00:00", price=None, active=False)
+    ]
+    state = current_state(CATALOG, rows, [])
+    assert state.price["p_a"] == 10.0
+    assert "p_a" not in state.available

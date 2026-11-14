@@ -1,4 +1,5 @@
-from dades_huzz.serving import decide_role, repair, validate
+from dades_huzz.data import State
+from dades_huzz.serving import answer, decide_role, repair, validate
 
 AVAILABLE = {f"p_{i:02d}" for i in range(20)}
 TEN = [f"p_{i:02d}" for i in range(10)]
@@ -181,3 +182,40 @@ def test_a_loop_that_cannot_read_the_heartbeats_keeps_its_role():
         )
         == "active"
     )
+
+
+def test_answer_replaces_a_product_whose_stock_just_changed_even_if_available():
+    fallback = tuple(f"p_{i:02d}" for i in range(12))
+    state = State(
+        available=frozenset(fallback),
+        price={},
+        new_products=frozenset(),
+        fallback=fallback,
+    )
+    allowed = state.available - {"p_00"}
+    [result] = answer(
+        [{"request_id": "r1"}],
+        lambda request, state: list(fallback[:10]),
+        "v",
+        state,
+        allowed,
+    )
+    assert result["items"] == [f"p_{i:02d}" for i in range(1, 11)]
+    assert result["problems"] == ["unavailable"]
+
+
+def test_answer_survives_a_model_that_raises():
+    fallback = tuple(f"p_{i:02d}" for i in range(10))
+    state = State(
+        available=frozenset(fallback),
+        price={},
+        new_products=frozenset(),
+        fallback=fallback,
+    )
+
+    def broken(request, state):
+        raise ValueError("bug")
+
+    [result] = answer([{"request_id": "r1"}], broken, "v", state, state.available)
+    assert result["items"] == list(fallback)
+    assert result["problems"] == ["model_error"]
