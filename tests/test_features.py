@@ -40,3 +40,17 @@ def test_shopper_profiles_are_each_shoppers_share_of_weight_per_category():
 
     profiles = shopper_profiles(ProfileRawTree(), until="2026-11-07 07:00:00")
     assert profiles == {"u_1": {"Toys": 0.75, "Books": 0.25}, "u_2": {"Pets": 1.0}}
+
+
+class PurchasesRawTree:
+    def query(self, sql, timeout=10):
+        assert "purchase" in sql and "history_events" in sql
+        return [{"user_id": "u_1", "products": ["p_a", "p_b"]}]
+
+
+def test_shopper_purchases_are_each_shoppers_bought_products():
+    from dades_huzz.features import shopper_purchases
+
+    assert shopper_purchases(PurchasesRawTree(), until="2026-11-14 12:00:00") == {
+        "u_1": frozenset({"p_a", "p_b"})
+    }

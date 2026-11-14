@@ -22,13 +22,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
-from dades_huzz.features import category_signals, shopper_profiles
+from dades_huzz.features import category_signals, shopper_profiles, shopper_purchases
 from dades_huzz.model import best_sellers, category_best_sellers
 from dades_huzz.serving.loop import Recommend
 
 
 def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
-    """Tati Apocalypse: Terminator plus each returning shopper's favourite categories from their history.
+    """Tati Apocalypse: Terminator plus each returning shopper's favourite categories from their history,
+    never showing what they already bought.
     With `viewed_first=3`, Tati Armageddon: Ultimatum's viewed products on top of Apocalypse."""
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     return category_best_sellers(
@@ -36,6 +37,7 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         keep_viewed=True,
         viewed_first=viewed_first,
         profiles=shopper_profiles(rawtree, until=until),
+        bought=shopper_purchases(rawtree, until=until),
     )
 
 

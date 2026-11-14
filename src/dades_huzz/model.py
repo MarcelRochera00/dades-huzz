@@ -1,15 +1,19 @@
 """Recommenders: each is a `recommend(request, state) -> list[str]` function (docs/contracts.md)."""
 
 from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 
 from dades_huzz.data import Record, State
 from dades_huzz.serving.loop import ANSWER_SIZE
 
 Recommend = Callable[[Record, State], list[str]]
 
-PROFILE_WEIGHT = 0.5
-"""How much a shopper's history counts next to the category they viewed last (which counts 1). Offline,
-0.5 tied with Terminator, while 1 tied lower and 2 lost (docs/experiments.md)."""
+PROFILE_WEIGHT = 3.0
+"""How much a shopper's history counts next to the category they viewed last (which counts 1). Live, a
+returning shopper's favourite category sold ~4x the category viewed last (docs/experiments.md row 27), so
+at 3 a favourite holding a typical 30-40 % share comes first. Offline preferred 0.5 (row 22), but the old
+carousel always showed the last viewed category, which biases that test. Tune per version with
+`profile_weight`."""
 PROFILE_TOP = 3
 """Only a shopper's three favourite categories take part: they hold 84 % of returning shoppers' live purchases."""
 
@@ -25,6 +29,8 @@ def category_best_sellers(
     keep_viewed: bool = False,
     viewed_first: int = 0,
     profiles: Mapping[str, Mapping[str, float]] | None = None,
+    profile_weight: float = PROFILE_WEIGHT,
+    bought: Mapping[str, AbstractSet[str]] | None = None,
 ) -> Recommend:
     """Tati Destroyer: the best sellers of the category the shopper viewed last, then the overall ones.
 
@@ -41,9 +47,13 @@ def category_best_sellers(
     A/B can judge it.
 
     `profiles` (Tati Apocalypse) maps a shopper to their share of history per category. Their favourite
-    categories join the one viewed last, at PROFILE_WEIGHT, and the categories' best sellers are merged by
+    categories join the one viewed last, at `profile_weight`, and the categories' best sellers are merged by
     rank divided by score. A shopper without views gets their favourites instead of the overall best
     sellers; a shopper without a profile gets exactly what they would get without `profiles`.
+
+    `bought` maps a shopper to the products they already bought; those are never shown. The organisers
+    (Discord, Sat 17:09): a shopper who bought a product is much less likely to buy it again, although the
+    history was generated without that effect.
     """
 
     def candidates(category: str | None, user_id: str | None) -> Sequence[str]:
@@ -53,7 +63,7 @@ def category_best_sellers(
         score: dict[str, float] = {category: 1.0} if category else {}
         favourites = sorted(profile.items(), key=lambda item: (-item[1], item[0]))
         for name, share in favourites[:PROFILE_TOP]:
-            score[name] = score.get(name, 0.0) + PROFILE_WEIGHT * share
+            score[name] = score.get(name, 0.0) + profile_weight * share
         merged = [
             ((rank + 1) / value, -value, name, rank, product_id)
             for name, value in score.items()
@@ -70,13 +80,20 @@ def category_best_sellers(
             else None
         )
         ranked = candidates(category, request.get("user_id"))
+        owned = (bought or {}).get(request.get("user_id") or "", frozenset())
         answer: list[str] = []
         for product_id in reversed(viewed):
             if len(answer) == viewed_first:
                 break
-            if product_id in state.available and product_id not in answer:
+            if (
+                product_id in state.available
+                and product_id not in answer
+                and product_id not in owned
+            ):
                 answer.append(product_id)
-        seen = set(answer) if keep_viewed else set(viewed)
+        seen = set(answer) | set(owned)
+        if not keep_viewed:
+            seen |= set(viewed)
         for product_id in (*ranked, *state.fallback):
             if product_id in seen or product_id not in state.available:
                 continue

@@ -48,6 +48,14 @@ GROUP BY user_id, category"""
 """Each shopper's activity per category before `until`: a purchase counts 5, an add-to-cart 2, a view 1."""
 
 
+SHOPPER_PURCHASES = """
+SELECT user_id::String AS user_id, groupUniqArray(product_id::String) AS products
+FROM shop.history_events
+WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+GROUP BY user_id"""
+"""Every product each shopper bought before `until`."""
+
+
 @dataclass(frozen=True)
 class CategorySignals:
     """What Tati Destroyer needs: each product's category and each category's best sellers."""
@@ -94,4 +102,12 @@ def shopper_profiles(rawtree: RawTree, until: str) -> dict[str, dict[str, float]
             for category, weight in categories.items()
         }
         for user, categories in weights.items()
+    }
+
+
+def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]:
+    """What each shopper already bought before `until`: the products not to show them again."""
+    return {
+        row["user_id"]: frozenset(row["products"])
+        for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
     }
