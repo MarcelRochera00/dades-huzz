@@ -41,8 +41,12 @@ def current_state(
         price[row["product_id"]] = float(row["price_eur"])
     for row in sorted(updates, key=lambda r: str(r["ts"])):
         product = row["product_id"]
-        active[product] = bool(row["is_active"])
-        price[product] = float(row["price_eur"])
+        if row.get("is_active") is not None:
+            active[product] = bool(row["is_active"])
+        if (
+            row.get("price_eur") is not None
+        ):  # one malformed update must not stop every later refresh
+            price[product] = float(row["price_eur"])
         if row["change"] == "out_of_stock":
             out_of_stock.add(product)
         elif row["change"] == "back_in_stock":
@@ -54,6 +58,55 @@ def current_state(
     )
     fallback = tuple(p for p in best_sellers if p in available)
     return State(available, price, frozenset(new), fallback)
+
+
+STOCK_CHANGES = ("out_of_stock", "back_in_stock")
+
+
+def recently_changed(
+    updates: Iterable[Record], now_ms: int, window_ms: int
+) -> frozenset[str]:
+    """Products whose stock changed (out or back) in the last `window_ms`.
+
+    The organisers judge an answer against the stock at the request's own time, and we answer about a second
+    later. Around a change, a product is valid for some requests and not for others, so the loop does not
+    recommend it at all for `window_ms`. A product that came back just now was still out of stock for a
+    request made a moment earlier. Changes stamped after `now_ms` count too: our clock may be a little
+    behind RawTree's. Why 10 s and when to revisit it: issue #14.
+    """
+    return frozenset(
+        row["product_id"]
+        for row in updates
+        if row["change"] in STOCK_CHANGES and row["ts_ms"] > now_ms - window_ms
+    )
+
+
+class UpdateLog:
+    """Every shop.catalog_updates record seen so far, read incrementally: each read asks only for updates
+    from a little before the newest one we have, so the reads stay small as the table grows all weekend."""
+
+    def __init__(self, overlap_ms: int) -> None:
+        self.overlap_ms = overlap_ms
+        """Read again this far back, in case an update lands in the table after a newer one."""
+        self.rows: list[Record] = []
+        self._keys: set[tuple[str, int, str, float | None]] = set()
+
+    def since_ms(self, now_ms: int) -> int:
+        """Where the next read starts: `overlap_ms` before the newest update, but never later than `now_ms`
+        minus `overlap_ms`, so an update stamped in the future cannot hide older ones that land late."""
+        newest = max((row["ts_ms"] for row in self.rows), default=None)
+        return 0 if newest is None else min(newest, now_ms) - self.overlap_ms
+
+    def add(self, rows: Iterable[Record]) -> list[Record]:
+        """Keep the rows not seen before and return them."""
+        new = []
+        for row in rows:
+            key = (row["product_id"], row["ts_ms"], row["change"], row.get("price_eur"))
+            if key not in self._keys:
+                self._keys.add(key)
+                self.rows.append(row)
+                new.append(row)
+        return new
 
 
 def as_request(row: Record) -> Record:
@@ -124,10 +177,12 @@ CATALOG = """
 SELECT product_id::String AS product_id, price_eur::Float64 AS price_eur, is_active::Bool AS is_active
 FROM shop.catalog"""
 
-CATALOG_UPDATES = """
+CATALOG_UPDATES_SINCE = """
 SELECT product_id::String AS product_id, change::String AS change, toString(ts) AS ts,
-       price_eur::Float64 AS price_eur, is_active::Bool AS is_active
-FROM shop.catalog_updates"""
+       toUnixTimestamp64Milli(ts::DateTime64(3)) AS ts_ms, price_eur::Float64 AS price_eur,
+       is_active::Bool AS is_active
+FROM shop.catalog_updates
+WHERE ts::DateTime64(3) >= fromUnixTimestamp64Milli(toInt64({since_ms}))"""
 
 HEARTBEATS_SINCE = """
 SELECT loop_id::String AS loop_id, host::String AS host, role::String AS role,
@@ -200,14 +255,20 @@ class RawTree:
             return
 
     def requests_since(self, since_ms: int) -> list[Record]:
-        rows = self.query(REQUESTS_SINCE.format(since_ms=int(since_ms)), timeout=2)
+        # A stuck read is dropped after 1 s and retried at the next poll, while its requests can still be
+        # answered in time; waiting 2 s let them age past MAX_AGE_MS.
+        rows = self.query(REQUESTS_SINCE.format(since_ms=int(since_ms)), timeout=1)
         return [as_request(row) for row in rows]
 
     def catalog(self) -> list[Record]:
         return self.query(CATALOG)
 
-    def catalog_updates(self) -> list[Record]:
-        return self.query(CATALOG_UPDATES, timeout=5)
+    def catalog_updates_since(self, since_ms: int) -> list[Record]:
+        return self.query(
+            # Like request reads: give up after 1 s and retry, rather than freeze stock tracking for 5 s.
+            CATALOG_UPDATES_SINCE.format(since_ms=int(since_ms)),
+            timeout=1,
+        )
 
     def heartbeats_since(self, since_ms: int) -> list[Record]:
         return self.query(

@@ -68,3 +68,29 @@ reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request
 **Handover**: how the serving loop moves between laptops: every loop sends a heartbeat, one is *active*
 (answers) and the others are *standby* (wait), and a standby takes over when the active one goes silent.
 _Avoid_: failover, leader election.
+
+**Tati**: our recommender as a product. Each model version that beats the live champion takes the next
+rank: Tati (`tati-0-bestsellers`, the baseline), Tati Destroyer, Tati Terminator, Tati Ultimatum; the
+model version is `tati-<rank>-<idea>`, e.g. `tati-destroyer-category`. _Avoid_: the bot, the model.
+
+**Champion**: the model version the team currently serves as its best, the one a challenger must beat
+live to take the next rank. _Avoid_: production model.
+
+## Offline evaluation
+
+**Cut**: the instant that splits the history: signals use only what happened before it, and evaluation
+uses the carousel impressions after it. _Avoid_: split date, test date.
+
+**Propensity**: the probability the old carousel had of showing a product in a slot, logged next to
+each impression. _Avoid_: score, probability.
+
+**Slate IPS**: the primary offline metric: carousel purchases per request a policy would get, counting
+only the slots where it matches the old carousel, each purchase weighted by 1 / propensity with a cap.
+_Avoid_: IPS (alone), offline conversion.
+
+**Weighted hit**: a secondary replay metric: whether the product bought from the old carousel is in our
+answer, worth more the higher it sits. Biased towards policies that resemble the old carousel.
+_Avoid_: hit rate, accuracy.
+
+**Organic purchase**: a purchase in `shop.history_events` / `shop.events`, made outside the carousel.
+Not used to score policies: it rarely follows a request closely. _Avoid_: conversion.
