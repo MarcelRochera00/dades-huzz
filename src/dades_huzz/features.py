@@ -19,7 +19,12 @@ ORDER BY category, n DESC, product_id DESC
 LIMIT {per_category} BY category"""
 """The best sellers of each category, bought before `until`."""
 
-CATALOG_CATEGORY = "SELECT product_id::String AS product_id, category::String AS category FROM shop.catalog"
+CATALOG_CATEGORY = """
+SELECT product_id::String AS product_id, category::String AS category FROM shop.catalog
+UNION ALL
+SELECT product_id::String AS product_id, category::String AS category FROM shop.catalog_updates
+WHERE change::String = 'new_product'"""
+"""Each product's category, including the products added during the event, which `shop.catalog` lacks."""
 
 OVERALL_RANKING = """
 SELECT product_id::String AS product_id, count() AS n
