@@ -54,6 +54,19 @@ def test_category_best_sellers_shows_the_top_of_the_category_viewed_last():
     assert len(set(answer)) == 10
 
 
+def test_category_best_sellers_finds_the_category_of_a_product_added_after_loading():
+    from dades_huzz.model import category_best_sellers
+
+    # "n_new" arrived after the version loaded: only the live State knows its category
+    recommend = category_best_sellers(
+        category_of={}, ranked_by_category={"toys": ["t_1", "t_2"]}
+    )
+    state = _state(extra={"t_1", "t_2", "n_new"})
+    state = State(**{**vars(state), "category": {"n_new": "toys"}})
+    answer = recommend({"recent_views": [{"product_id": "n_new"}]}, state)
+    assert answer[:3] == ["t_1", "t_2", "p_00"]
+
+
 def test_category_best_sellers_falls_back_without_recent_views():
     from dades_huzz.model import category_best_sellers
 
