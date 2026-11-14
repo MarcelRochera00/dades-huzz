@@ -155,6 +155,48 @@ def test_cold_start_without_views_shows_the_global_trend_minus_recent_purchases(
     assert len(set(answer)) == 10
 
 
+def _blank_profile_state():
+    # five books and five toys per price step of 10; the trend ranks the dearer ones higher
+    books = {f"b{i}": 10.0 * i for i in range(1, 6)}
+    toys = {f"t{i}": 10.0 * i for i in range(1, 6)}
+    trend = {
+        "b5": 9,
+        "b4": 8,
+        "b3": 7,
+        "b2": 6,
+        "b1": 5,
+        "t5": 4,
+        "t4": 3,
+        "t3": 2,
+        "t2": 1,
+    }
+    state = _cold_state(trend, extra={*books, *toys})
+    category = {p: "Books & Media" for p in books} | {p: "Toys & Baby" for p in toys}
+    return State(**{**vars(state), "category": category, "price": books | toys})
+
+
+def _blank_request(device):
+    return {
+        "is_new_user": True,
+        "recent_views": [],
+        "context": {"device": device, "page": "home"},
+    }
+
+
+def test_a_blank_android_shopper_gets_three_books_and_no_product_from_the_dearest_fifth():
+    # Books & Media always takes 3 slots; the other categories share the rest by what android buys.
+    # Android leaves out each category's dearest 20 %: b5 and t5 never show, not even as filler
+    answer = _cold_recommend({})(_blank_request("android"), _blank_profile_state())
+    assert answer == ["b4", "b3", "b2", "t4", "b1", "t3", "t2", "p_00", "p_01", "p_02"]
+
+
+def test_a_blank_ios_or_web_shopper_only_sees_the_dearest_two_fifths_of_each_category():
+    for device in ("ios", "web"):
+        answer = _cold_recommend({})(_blank_request(device), _blank_profile_state())
+        assert answer[:5] == ["b5", "b4", "t5", "t4", "p_00"], device
+        assert len(set(answer)) == 10
+
+
 def test_cold_start_splits_the_list_by_the_share_of_views_per_category():
     # 3 of 5 views are toys and 2 electronics: 6 toys slots, then 4 electronics slots. Each block opens
     # with its last viewed product, then that category's trend; a short block is filled at the end

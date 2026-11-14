@@ -1,7 +1,8 @@
 """Recommenders: each is a `recommend(request, state) -> list[str]` function (docs/contracts.md)."""
 
 import json
-from collections import Counter
+import math
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 
@@ -18,6 +19,54 @@ from dades_huzz.serving.loop import ANSWER_SIZE, Recommend
 
 COLD_VIEWED_MAX = 3
 """A cold answer opens at most this many category blocks with the product viewed in them."""
+BLANK_BOOKS = 3
+"""Slots a blank profile (cold, no views) always gives Books & Media, the category every device buys most."""
+BLANK_CATEGORY_SHARE = {
+    "android": {
+        "Books & Media": 18.0,
+        "Sports & Outdoors": 13.3,
+        "Toys & Baby": 12.3,
+        "Fashion": 10.6,
+        "Electronics": 10.3,
+        "Computers & Gaming": 9.1,
+        "Home & Kitchen": 6.5,
+        "Beauty & Health": 6.4,
+        "Pets": 6.0,
+        "Home & Garden": 4.1,
+    },
+    "ios": {
+        "Books & Media": 19.0,
+        "Toys & Baby": 12.5,
+        "Electronics": 12.2,
+        "Fashion": 10.8,
+        "Computers & Gaming": 10.2,
+        "Sports & Outdoors": 10.1,
+        "Beauty & Health": 8.5,
+        "Pets": 5.1,
+        "Home & Kitchen": 4.7,
+        "Home & Garden": 3.0,
+    },
+    "web": {
+        "Books & Media": 30.5,
+        "Toys & Baby": 13.1,
+        "Electronics": 9.4,
+        "Sports & Outdoors": 9.3,
+        "Computers & Gaming": 8.7,
+        "Home & Kitchen": 6.7,
+        "Fashion": 6.2,
+        "Pets": 5.4,
+        "Beauty & Health": 3.9,
+        "Home & Garden": 3.9,
+    },
+}
+"""Per device, each category's share (%) of new shoppers' purchases in `shop.events` on Saturday (24,320
+purchases); 60 days of `shop.history_events` give the same order. A blank profile splits its slots after
+Books & Media by these shares."""
+ANDROID_DEAREST_LEFT_OUT = 0.2
+"""Android buys cheapest (median 18.99 EUR vs 23.99 ios, 24.99 web): a blank android profile never sees the
+dearest 20 % of a category."""
+DEAREST_KEPT = 0.4
+"""ios and web buy dearer: a blank profile on them only sees the dearest 40 % of each category."""
 PROFILE_WEIGHT = 3.0
 """How much a shopper's history counts next to the category they viewed last (which counts 1). Live, a
 returning shopper's favourite category sold ~4x the category viewed last (docs/experiments.md row 27), so
@@ -70,9 +119,20 @@ def category_best_sellers(
     instead: see `cold_start_answer`. What the shopper bought is left out there too.
     """
     trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]
+    band_cache: dict[str, tuple[State, frozenset[str]]] = {}
 
     def category(product_id: str, state: State) -> str | None:
         return category_of.get(product_id) or state.category.get(product_id)
+
+    def out_of_band(state: State, device: str) -> frozenset[str]:
+        cached = band_cache.get(device)
+        if cached is None or cached[0] is not state:
+            cached = (
+                state,
+                price_band_left_out(state, lambda p: category(p, state), device),
+            )
+            band_cache[device] = cached
+        return cached[1]
 
     def trending(state: State) -> list[str]:
         trend, ranked = trend_cache[0]
@@ -113,6 +173,8 @@ def category_best_sellers(
                 trending(state),
                 lambda p: category(p, state),
                 owned,
+                ranked_by_category,
+                lambda device: out_of_band(state, device),
             )
         last_category = category(viewed[-1], state) if viewed else None
         ranked = candidates(last_category, request.get("user_id"))
@@ -148,8 +210,12 @@ def cold_start_answer(
     trending: Sequence[str],
     category_of: Callable[[str], str | None],
     owned: AbstractSet[str] = frozenset(),
+    ranked_by_category: Mapping[str, Sequence[str]] | None = None,
+    out_of_band: Callable[[str], AbstractSet[str]] | None = None,
 ) -> list[str]:
     """The answer to a cold request, built from the live trend (`trending`: products, highest first).
+
+    A blank profile (no view of a known category) on a known device gets `blank_profile_answer` instead.
 
     Each category the shopper viewed gets a share of the ANSWER_SIZE slots in proportion to its views
     (largest remainder; a tie goes to the category viewed last). Blocks follow by share, ties again to the
@@ -177,6 +243,18 @@ def cold_start_answer(
         if (category := category_of(product_id)) is not None:
             views[category] += 1
             last_view[category] = (position, product_id)
+    device = (request.get("context") or {}).get("device")
+    left_out: AbstractSet[str] = frozenset()
+    if not views and device in BLANK_CATEGORY_SHARE and out_of_band is not None:
+        left_out = out_of_band(device)
+        for product_id in blank_profile_answer(
+            device,
+            trending,
+            category_of,
+            ranked_by_category or {},
+            lambda p: p in state.available and p not in bought and p not in left_out,
+        ):
+            add(product_id)
     if views:
         total = views.total()
         quota = {c: ANSWER_SIZE * n // total for c, n in views.items()}
@@ -201,11 +279,75 @@ def cold_start_answer(
                 if len(answer) >= block_end:
                     break
                 add(product_id)
-    for product_id in (*trending, *state.fallback):
+    for product_id in (*(p for p in trending if p not in left_out), *state.fallback):
         if len(answer) >= ANSWER_SIZE:
             break
         add(product_id)
     return answer
+
+
+def blank_profile_answer(
+    device: str,
+    trending: Sequence[str],
+    category_of: Callable[[str], str | None],
+    ranked_by_category: Mapping[str, Sequence[str]],
+    eligible: Callable[[str], bool],
+) -> list[str]:
+    """For a cold shopper we know nothing about but their device: BLANK_BOOKS slots of Books & Media, then the
+    other categories by what that device buys (BLANK_CATEGORY_SHARE, largest remainder), a block per
+    category, the biggest share first. A block lists its category's trending products, then its best sellers,
+    keeping only `eligible` ones. A block that runs short leaves its slots to the caller's filler."""
+    shares = BLANK_CATEGORY_SHARE[device]
+    books = "Books & Media"
+    others = {c: share for c, share in shares.items() if c != books}
+    rest = ANSWER_SIZE - BLANK_BOOKS
+    exact = {c: rest * share / sum(others.values()) for c, share in others.items()}
+    quota = {c: math.floor(x) for c, x in exact.items()}
+    by_remainder = sorted(
+        others, key=lambda c: (exact[c] - quota[c], others[c]), reverse=True
+    )
+    for c in by_remainder[: rest - sum(quota.values())]:
+        quota[c] += 1
+    quota[books] = BLANK_BOOKS
+    in_category: dict[str, list[str]] = {c: [] for c in quota}
+    for product_id in trending:
+        if (c := category_of(product_id)) in in_category:
+            in_category[c].append(product_id)
+    answer: list[str] = []
+    for c in [books, *sorted(others, key=lambda c: -others[c])]:
+        block: list[str] = []
+        for product_id in (*in_category[c], *ranked_by_category.get(c, ())):
+            if len(block) == quota[c]:
+                break
+            if (
+                eligible(product_id)
+                and product_id not in answer
+                and product_id not in block
+            ):
+                block.append(product_id)
+        answer += block
+    return answer
+
+
+def price_band_left_out(
+    state: State, category_of: Callable[[str], str | None], device: str
+) -> frozenset[str]:
+    """The available products a blank profile on `device` must not see, by price within their category:
+    android leaves out each category's dearest ANDROID_DEAREST_LEFT_OUT, ios and web keep only its dearest
+    DEAREST_KEPT. A product without a category or a price is never left out."""
+    by_category: dict[str, list[str]] = defaultdict(list)
+    for product_id in state.available:
+        if (c := category_of(product_id)) is not None and product_id in state.price:
+            by_category[c].append(product_id)
+    left_out: set[str] = set()
+    for products in by_category.values():
+        products.sort(key=lambda p: (state.price[p], p))
+        n = len(products)
+        if device == "android":
+            left_out.update(products[n - math.floor(ANDROID_DEAREST_LEFT_OUT * n) :])
+        else:
+            left_out.update(products[: n - max(1, math.ceil(DEAREST_KEPT * n))])
+    return frozenset(left_out)
 
 
 SUBCATEGORY_TOP = 2
