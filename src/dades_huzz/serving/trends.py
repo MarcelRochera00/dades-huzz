@@ -101,3 +101,46 @@ class SubcategoryHeat:
             if n - expected >= self.min_extra and ratio >= self.min_ratio:
                 hot[subcategory] = round(ratio, 2)
         return hot
+
+
+REGION_PURCHASES = """
+SELECT region::String AS g, product_id::String AS p, count() AS n
+FROM shop.events
+WHERE event_type::String = 'purchase'
+  AND ts::DateTime64(3) < fromUnixTimestamp64Milli(toInt64({until_ms}))
+GROUP BY g, p"""
+
+
+def read_region_backfill(rawtree: RawTree, until_ms: int) -> list[Record]:
+    """Purchases per (region, product) since the stream started, before `until_ms` (about 50k rows)."""
+    return rawtree.query(REGION_PURCHASES.format(until_ms=int(until_ms)), timeout=30)
+
+
+class RegionSales:
+    """Purchases per region and product since the stream started: what sells where. A product's share in the
+    shopper's region against its share overall sold 1.4x on our carousel (#5)."""
+
+    def __init__(self) -> None:
+        self._sales: dict[str, dict[str, int]] = {}
+        self._changed: set[str] = set()
+        self._snapshot: dict[str, dict[str, int]] = {}
+
+    def add_day(self, rows: Iterable[Record]) -> None:
+        """Backfilled (region, product, purchases) rows."""
+        self.add((row["g"], row["p"]) for row in rows for _ in range(int(row["n"])))
+
+    def add(self, purchases: Iterable[tuple[str, str]]) -> None:
+        """New purchases as (region, product), each counted once by the caller."""
+        for region, product in purchases:
+            counts = self._sales.setdefault(region, {})
+            counts[product] = counts.get(product, 0) + 1
+            self._changed.add(region)
+
+    def snapshot(self) -> dict[str, dict[str, int]]:
+        """Region to product to purchases, read-only: only regions with new purchases are copied again."""
+        frozen = dict(self._snapshot)
+        for region in self._changed:
+            frozen[region] = dict(self._sales[region])
+        self._changed.clear()
+        self._snapshot = frozen
+        return frozen

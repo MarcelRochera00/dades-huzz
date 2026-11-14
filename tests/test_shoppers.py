@@ -17,7 +17,7 @@ def test_categories_count_views_and_weigh_carts_more():
         ],
         CATEGORY,
     )
-    categories, _, _ = day.snapshot()
+    categories, _, _, *_ = day.snapshot()
     assert categories == {"u1": {"Toys": 2, "Electronics": 3}}
 
 
@@ -31,7 +31,7 @@ def test_carted_products_leave_once_bought():
         ],
         CATEGORY,
     )
-    _, carted, _ = day.snapshot()
+    _, carted, _, *_ = day.snapshot()
     assert carted == {"u1": frozenset({"p_toy1"})}
 
 
@@ -39,7 +39,7 @@ def test_viewed_products_are_the_latest_first_without_repeats_and_capped():
     day = ShopperDay(viewed_max=3)
     views = ["p_a", "p_b", "p_c", "p_a", "p_d"]
     day.add([event("u1", p, "view", t) for t, p in enumerate(views)], CATEGORY)
-    _, _, viewed = day.snapshot()
+    _, _, viewed, *_ = day.snapshot()
     assert viewed == {"u1": ("p_d", "p_a", "p_c")}
 
 
@@ -48,7 +48,7 @@ def test_a_row_read_twice_counts_once():
     rows = [event("u1", "p_toy1", "view", 5)]
     day.add(rows, CATEGORY)
     day.add(rows + [event("u1", "p_toy2", "view", 6)], CATEGORY)
-    categories, _, _ = day.snapshot()
+    categories, _, _, *_ = day.snapshot()
     assert categories == {"u1": {"Toys": 2}}
 
 
@@ -59,7 +59,7 @@ def test_a_snapshot_does_not_change_when_more_events_arrive():
     day.add(
         [event("u1", "p_toy2", "view", 2), event("u2", "p_tv", "view", 3)], CATEGORY
     )
-    assert before == ({"u1": {"Toys": 1}}, {}, {"u1": ("p_toy1",)})
+    assert before[:3] == ({"u1": {"Toys": 1}}, {}, {"u1": ("p_toy1",)})
 
 
 def test_the_backfill_sits_under_newer_live_events():
@@ -73,7 +73,7 @@ def test_the_backfill_sits_under_newer_live_events():
         carted=[{"u": "u1", "p": "p_toy1"}, {"u": "u1", "p": "p_toy2"}],
         viewed=[{"u": "u1", "v": ["p_toy1", "p_tv"]}],
     )
-    categories, carted, viewed = day.snapshot()
+    categories, carted, viewed, *_ = day.snapshot()
     assert categories == {"u1": {"Toys": 4, "Electronics": 1}}
     assert carted == {
         "u1": frozenset({"p_toy2"})
@@ -84,7 +84,7 @@ def test_the_backfill_sits_under_newer_live_events():
 def test_an_event_of_an_unknown_product_still_counts_as_viewed():
     day = ShopperDay()
     day.add([event("u1", "p_new", "view", 1)], CATEGORY)
-    categories, _, viewed = day.snapshot()
+    categories, _, viewed, *_ = day.snapshot()
     assert categories == {}
     assert viewed == {"u1": ("p_new",)}
 
@@ -101,10 +101,10 @@ class CountingRawTree:
 def test_the_backfill_reads_every_kind_in_slices_and_freezes_after_each():
     rawtree, freezes = CountingRawTree(), []
     read_backfill(rawtree, until_ms=1_000, after_each=lambda: freezes.append(1))
-    # categories, carts and views, each in SHARDS slices
-    assert len(rawtree.queries) == 3 * SHARDS
+    # categories, carts, views and brands, each in SHARDS slices
+    assert len(rawtree.queries) == 4 * SHARDS
     assert all(f"% {SHARDS} = " in sql for sql in rawtree.queries)
-    assert len(freezes) == 3 * SHARDS
+    assert len(freezes) == 4 * SHARDS
 
 
 def test_add_returns_only_the_rows_it_had_not_counted_yet():
@@ -114,3 +114,45 @@ def test_add_returns_only_the_rows_it_had_not_counted_yet():
     assert day.add(rows + [event("u1", "p_toy2", "purchase", 6)], CATEGORY) == [
         event("u1", "p_toy2", "purchase", 6)
     ]
+
+
+BRAND = {"p_toy1": "Lego", "p_toy2": "Lego", "p_tv": "Sony"}.get
+
+
+def test_brands_count_views_and_weigh_carts_more():
+    day = ShopperDay()
+    day.add(
+        [
+            event("u1", "p_toy1", "view", 1),
+            event("u1", "p_toy2", "view", 2),
+            event("u1", "p_tv", "add_to_cart", 3),
+        ],
+        CATEGORY,
+        BRAND,
+    )
+    assert day.snapshot().brands == {"u1": {"Lego": 2, "Sony": 3}}
+
+
+def test_view_counts_follow_the_products_kept_in_viewed():
+    day = ShopperDay(viewed_max=2)
+    views = ["p_a", "p_b", "p_a", "p_a", "p_c"]
+    day.add([event("u1", p, "view", t) for t, p in enumerate(views)], CATEGORY, BRAND)
+    snap = day.snapshot()
+    assert snap.viewed == {"u1": ("p_c", "p_a")}
+    assert snap.view_counts == {
+        "u1": {"p_c": 1, "p_a": 3}
+    }  # p_b fell out of the last two
+
+
+def test_the_backfill_brings_brands_and_view_counts():
+    day = ShopperDay()
+    day.add([event("u1", "p_tv", "view", 100)], CATEGORY, BRAND)
+    day.add_backfill(
+        categories=[],
+        carted=[],
+        viewed=[{"u": "u1", "v": ["p_toy1", "p_tv"], "c": [4, 2]}],
+        brands=[{"u": "u1", "b": "Lego", "n": 5}],
+    )
+    snap = day.snapshot()
+    assert snap.brands == {"u1": {"Sony": 1, "Lego": 5}}
+    assert snap.view_counts == {"u1": {"p_tv": 3, "p_toy1": 4}}

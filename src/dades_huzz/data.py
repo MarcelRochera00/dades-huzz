@@ -32,6 +32,8 @@ class State:
     """Every product's category, including the products added during the event, as soon as the loop sees them."""
     subcategory: dict[str, str] = field(default_factory=dict)
     """Every product's subcategory, like `category`."""
+    brand: dict[str, str] = field(default_factory=dict)
+    """Every product's brand, like `category`."""
     trend: dict[str, int] = field(default_factory=dict)
     """Product weight in `shop.events` over the last 15 minutes: purchase 4, add-to-cart 3, view 1."""
     recent_purchases: dict[str, frozenset[str]] = field(default_factory=dict)
@@ -44,6 +46,12 @@ class State:
     hot_subcategories: dict[str, float] = field(default_factory=dict)
     """Subcategories selling far above their normal level in the last 15 min, each with how many times its day
     share it sells (`serving/trends.py`). Empty when nothing is trending."""
+    shopper_brands: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Shopper to brand to views today in `shop.events` (an add-to-cart counts 3), like `shopper_categories`."""
+    shopper_view_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Shopper to how many times they viewed today each product in `shopper_viewed`."""
+    region_purchases: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Region (`context.region`) to product to purchases in `shop.events` since the stream started."""
     """Shopper to their last 20 products viewed today, latest first (`recent_views` is only the session's tail)."""
 
 
@@ -56,8 +64,11 @@ def current_state(
     new: set[str] = set()
     category: dict[str, str] = {}
     subcategory: dict[str, str] = {}
+    brand: dict[str, str] = {}
 
     def classify(row: Record) -> None:
+        if row.get("brand"):
+            brand[row["product_id"]] = row["brand"]
         if row.get("category"):
             category[row["product_id"]] = row["category"]
         if row.get("subcategory"):
@@ -87,7 +98,9 @@ def current_state(
     )
     ranked = [p for p in dict.fromkeys(best_sellers) if p in available]
     fallback = (*ranked, *sorted(available - set(ranked)))
-    return State(available, price, frozenset(new), fallback, category, subcategory)
+    return State(
+        available, price, frozenset(new), fallback, category, subcategory, brand
+    )
 
 
 STOCK_CHANGES = ("out_of_stock", "back_in_stock")
@@ -205,13 +218,13 @@ WHERE ts::DateTime64(3) > fromUnixTimestamp64Milli(toInt64({since_ms}))"""
 
 CATALOG = """
 SELECT product_id::String AS product_id, price_eur::Float64 AS price_eur, is_active::Bool AS is_active,
-       category::String AS category, subcategory::String AS subcategory
+       category::String AS category, subcategory::String AS subcategory, brand::String AS brand
 FROM shop.catalog"""
 
 CATALOG_UPDATES_SINCE = """
 SELECT product_id::String AS product_id, change::String AS change, toString(ts) AS ts,
        toUnixTimestamp64Milli(ts::DateTime64(3)) AS ts_ms, price_eur::Float64 AS price_eur,
-       is_active::Bool AS is_active, category::String AS category, subcategory::String AS subcategory
+       is_active::Bool AS is_active, category::String AS category, subcategory::String AS subcategory, brand::String AS brand
 FROM shop.catalog_updates
 WHERE ts::DateTime64(3) >= fromUnixTimestamp64Milli(toInt64({since_ms}))"""
 

@@ -64,12 +64,16 @@ def recommend(request: Request, state: State) -> list[str]:
   | `fallback` | `tuple[str, ...]` | All-time best sellers that are available, best first, then every other available product; the baseline answer is its first 10, and it pads a short answer |
   | `category` | `dict[str, str]` | Every product's category, including products added during the event, from the next refresh after their `new_product` update |
   | `subcategory` | `dict[str, str]` | Every product's subcategory, like `category` |
+  | `brand` | `dict[str, str]` | Every product's brand, like `category` |
   | `trend` | `dict[str, int]` | Lane C. Each product's weight in `shop.events` over the last 15 minutes: purchase 4, add-to-cart 3, view 1. Refreshed every 30 s in the background |
   | `recent_purchases` | `dict[str, frozenset[str]]` | Lane C. Shopper to the products they purchased in that same window; an answer leaves them out |
   | `shopper_categories` | `dict[str, dict[str, int]]` | Shopper (`user_id`) to category to views in `shop.events` since the stream started; an add-to-cart counts 3. Backfilled at start, then new events every 5 s |
   | `shopper_carted` | `dict[str, frozenset[str]]` | Shopper to the products they carted since the stream started and have not bought since |
   | `shopper_viewed` | `dict[str, tuple[str, ...]]` | Shopper to their last 20 distinct products viewed since the stream started, latest first |
   | `hot_subcategories` | `dict[str, float]` | Subcategories selling at least 2x their day share in the last 15 min, with at least 25 extra purchases; value = that ratio. Empty when nothing trends (`serving/trends.py`) |
+  | `shopper_brands` | `dict[str, dict[str, int]]` | Shopper to brand to views since the stream started; an add-to-cart counts 3 (like `shopper_categories`) |
+  | `shopper_view_counts` | `dict[str, dict[str, int]]` | Shopper to how many times they viewed each product in `shopper_viewed` today |
+  | `region_purchases` | `dict[str, dict[str, int]]` | Region (`context.region`) to product to purchases since the stream started |
 - **Precomputed signals** (co-views, similarities, profiles) are built offline and stored as rows in
   `team_02.scratch` (with a `kind`), not only as files in `outputs/`, which exists on one laptop; the
   serving loop loads them into `State`, on whichever laptop runs it.
