@@ -24,6 +24,7 @@ from dades_huzz.features import (
     shopper_history_views,
     shopper_profiles,
     shopper_purchases,
+    shopper_taste,
 )
 from dades_huzz.model import (
     LAURI_PER_CATEGORY,
@@ -108,12 +109,14 @@ def _lauri(
     day: bool = False,
     history_carts: bool = False,
     per_category: int = LAURI_PER_CATEGORY,
+    taste: bool = False,
 ) -> Recommend:
     """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
     ranking's products with each shopper's profile, and never showing what they bought.
     With `day`, Lauri Colossus: the shopper's day so far in `State` counts too.
     With `history_carts`, Lauri Titan+: what each shopper carted in the history and never bought joins.
-    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100)."""
+    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100).
+    With `taste`, Lauri Titan ALS: each returning shopper's taste from the history (#62) adds candidates and a weight."""
     weights = load_lauri_weights(rawtree, name)
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     ranking = LiveCategoryRanking(rawtree).start()
@@ -132,7 +135,45 @@ def _lauri(
         day=day,
         carts=shopper_carts(rawtree, until=until) if history_carts else None,
         per_category=per_category,
+        taste=shopper_taste(rawtree) if taste else None,
     )
+
+
+def _cold_answer(rawtree: RawTree) -> Recommend:
+    """#60's cold-start rule (with #69) on the live ranking, never showing what the shopper bought or viewed
+    in the history and left (issue #5). Today's views stay."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    return category_best_sellers(
+        **vars(live_category_signals(rawtree)),
+        keep_viewed=True,
+        cold_start=True,
+        bought=shopper_purchases(rawtree, until=until),
+        seen_in_history=shopper_history_views(rawtree, until=until),
+    )
+
+
+def _titan_max(
+    rawtree: RawTree,
+    name: str = "lauri-titan-plus",
+    day: bool = False,
+    taste: bool = False,
+) -> Recommend:
+    """Lauri Titan max: tournament 4's pieces together. Titan+ (history carts) reaching 100 deep into each
+    category's ranking, a trending subcategory's best sellers in slots 2-3, and #60's rule for cold requests.
+    With `taste`, Lauri Titan ALS: the same, with the weights that also score the shopper's taste (#62).
+    With `day` and the weights of `lauri-omni`, Lauri Omni: the same pieces on a model that also reads the
+    shopper's day (Colossus' features plus history carts), Marcel's combined model (#7)."""
+    lauri_100 = _lauri(
+        rawtree, name, day=day, history_carts=True, per_category=100, taste=taste
+    )
+    hot = hot_first(
+        lauri_100,
+        live_category_signals(rawtree).ranked_by_category,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+        ),
+    )
+    return cold_first(hot, _cold_answer(rawtree))
 
 
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
@@ -170,14 +211,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
     "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
-    "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
-        **vars(live_category_signals(rawtree)),
-        keep_viewed=True,
-        cold_start=True,
-        seen_in_history=shopper_history_views(
-            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
-        ),
-    ),
+    "tati-terminator-live-cold": lambda rawtree: _cold_answer(rawtree),
     "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
     "tati-omega-plus-day": lambda rawtree: _omega(rawtree, day_weight=3.0),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
@@ -196,18 +230,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         rawtree, "lauri-titan-feedback", per_category=100
     ),
     "lauri-titan-cold60": lambda rawtree: cold_first(
-        _lauri(rawtree, "lauri-titan-feedback"),
-        category_best_sellers(
-            **vars(live_category_signals(rawtree)),
-            keep_viewed=True,
-            cold_start=True,
-            bought=shopper_purchases(
-                rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
-            ),
-            seen_in_history=shopper_history_views(
-                rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
-            ),
-        ),
+        _lauri(rawtree, "lauri-titan-feedback"), _cold_answer(rawtree)
     ),
     "lauri-titan-plus-hot": lambda rawtree: hot_first(
         _lauri(rawtree, "lauri-titan-plus", history_carts=True),
@@ -215,6 +238,16 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         bought=shopper_purchases(
             rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
         ),
+    ),
+    "lauri-titan-max": lambda rawtree: _titan_max(rawtree),
+    "lauri-titan-als": lambda rawtree: _titan_max(
+        rawtree, "lauri-titan-als", taste=True
+    ),
+    "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
+    # Omni's weights alone (the ones stored as lauri-omni: retraining Omni changes both), 30 deep, without the
+    # cold rule, the trending subcategory and pool 100 (tournament 4's live read, docs/experiments.md row 60).
+    "lauri-omni-plain": lambda rawtree: _lauri(
+        rawtree, "lauri-omni", day=True, history_carts=True
     ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""

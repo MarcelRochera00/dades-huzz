@@ -61,3 +61,15 @@ def test_a_subcategory_new_today_is_hot_once_it_sells_enough():
     steady_day(heat)
     heat.add([(120 * MIN + i * 20_000, "Smart Rings") for i in range(30)])
     assert "Smart Rings" in heat.hot(now_ms=135 * MIN)
+
+
+def test_region_sales_count_purchases_per_region_and_product():
+    from dades_huzz.serving.trends import RegionSales
+
+    sales = RegionSales()
+    sales.add_day([{"g": "Madrid", "p": "p_a", "n": 3}])
+    sales.add([("Madrid", "p_a"), ("Madrid", "p_b"), ("Galicia", "p_a")])
+    before = sales.snapshot()
+    sales.add([("Madrid", "p_b")])
+    assert before == {"Madrid": {"p_a": 4, "p_b": 1}, "Galicia": {"p_a": 1}}
+    assert sales.snapshot()["Madrid"] == {"p_a": 4, "p_b": 2}

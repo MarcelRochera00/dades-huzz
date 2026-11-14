@@ -902,6 +902,7 @@ def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
         LAURI_CART_FEATURES,
         LAURI_DAY_FEATURES,
         LAURI_FEATURES,
+        LAURI_TASTE_FEATURES,
         LauriTrainingRows,
     )
     from dades_huzz.model import fit_lauri, lauri_scores
@@ -923,7 +924,9 @@ def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
     )
     everything = np.ones(n * 10, dtype=bool)
     titan = [
-        f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES + LAURI_CART_FEATURES
+        f
+        for f in LAURI_FEATURES
+        if f not in LAURI_DAY_FEATURES + LAURI_CART_FEATURES + LAURI_TASTE_FEATURES
     ]
     without = fit_lauri(rows, everything, rows.purchased, l2=1.0, features=titan)
     full = fit_lauri(rows, everything, rows.purchased, l2=1.0)
@@ -1054,6 +1057,33 @@ def test_hot_first_puts_the_hottest_subcategorys_live_best_sellers_in_slots_2_an
     assert recommend({"user_id": "u", "recent_views": []}, calm) == base(None, None)
 
 
+def test_titan_max_shape_cold_goes_to_the_cold_rule_and_returning_gets_the_trend():
+    """lauri-titan-max is cold_first(hot_first(Titan+ 100 deep, ...), cold rule): a cold request never sees
+    the trend injection, a returning one does."""
+    from dataclasses import replace
+
+    from dades_huzz.model import cold_first, hot_first
+
+    products = [f"a_{i}" for i in range(12)] + ["b_0", "b_1"]
+    state = replace(
+        _lauri_state(
+            subcategory={p: "kettles" if p[0] == "b" else "a" for p in products}
+        ),
+        hot_subcategories={"kettles": 4.0},
+    )
+
+    def titan_plus_100(request, state):
+        return [f"a_{i}" for i in range(10)]
+
+    def cold_rule(request, state):
+        return [f"a_{i}" for i in range(11, 1, -1)]
+
+    recommend = cold_first(hot_first(titan_plus_100, {"b": ["b_0", "b_1"]}), cold_rule)
+    returning = {"user_id": "u", "is_new_user": False, "recent_views": []}
+    assert recommend({**returning, "is_new_user": True}, state) == cold_rule(None, None)
+    assert recommend(returning, state)[:3] == ["a_0", "b_0", "b_1"]
+
+
 def _with(state, **fields):
     return State(**{**vars(state), **fields})
 
@@ -1118,3 +1148,25 @@ def test_a_cold_answer_has_ten_products_however_many_the_shopper_carted():
     )
     answer = _cold_recommend({})({**_blank_request("ios"), "user_id": "u1"}, state)
     assert len(answer) == 10 == len(set(answer))
+
+
+def test_lauri_adds_the_shoppers_taste_to_the_candidates_and_scores_it():
+    import numpy as np
+
+    from dades_huzz.features import ShopperTaste
+
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    item = np.zeros((len(products), 2))
+    item[products.index("b_11")] = [1.0, 0.0]
+    taste = ShopperTaste(
+        users={"u": 0},
+        user_factors=np.array([[1.0, 0.0]]),
+        products={p: i for i, p in enumerate(products)},
+        product_factors=item,
+    )
+    recommend = _lauri({"als_score": 5.0}, per_category=2, taste=taste)
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    assert recommend(request, _lauri_state())[0] == "b_11"
+    assert "b_11" not in _lauri({"als_score": 5.0}, per_category=2)(
+        request, _lauri_state()
+    )

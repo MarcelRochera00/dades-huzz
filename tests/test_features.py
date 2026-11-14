@@ -316,7 +316,6 @@ def test_lauri_features_know_the_shoppers_history_carts():
     rows = lauri_features(["p1", "p2"], [], None, signals, carts=frozenset({"p2"}))
     column = LAURI_FEATURES.index("history_carted")
     assert list(rows[:, column]) == [0, 1]
-    assert column == len(LAURI_FEATURES) - 1  # new features go at the end
     assert not lauri_features(["p1", "p2"], [], None, signals)[:, column].any()
 
 
@@ -359,7 +358,11 @@ def test_shopper_carts_are_each_shoppers_unbought_carts_latest_first():
 
 class HistoryViewsRawTree:
     def query(self, sql, timeout=10):
-        assert "event_type::String = 'view'" in sql and "add_to_cart" in sql and "NOT IN" in sql
+        assert (
+            "event_type::String = 'view'" in sql
+            and "add_to_cart" in sql
+            and "NOT IN" in sql
+        )
         return [{"user_id": "u_1", "products": ["p_seen"]}]
 
 
@@ -369,3 +372,37 @@ def test_shopper_history_views_are_viewed_in_the_history_and_neither_bought_nor_
     assert shopper_history_views(
         HistoryViewsRawTree(), until="2026-11-14 12:00:00"
     ) == {"u_1": frozenset({"p_seen"})}
+
+
+def test_shopper_taste_scores_what_similar_shoppers_liked_above_what_nobody_like_them_touched():
+    from dades_huzz.features import fit_shopper_taste
+
+    weights = {
+        "u1": {"a": 6, "b": 3, "e": 6},
+        "u2": {"a": 6, "b": 3},
+        "u3": {"c": 6, "d": 3},
+        "u4": {"c": 6, "d": 3, "f": 1},
+    }
+    taste = fit_shopper_taste(weights, factors=4, iterations=10)
+    scores = taste.scores("u2", ["e", "c", "f"])
+    assert scores["e"] > scores["c"] and scores["e"] > scores["f"]
+    assert taste.top("u2", 2, skip={"a"})[0] == "b"
+    assert taste.scores("stranger", ["a"]) == {}
+    assert taste.top("stranger", 3) == []
+
+
+def test_lauri_features_know_the_shoppers_taste():
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys"},
+        subcategory={},
+        price={},
+        history_sales={},
+        live_sales={},
+        median_log_price={},
+    )
+    rows = lauri_features(["p1", "p2"], [], None, signals, taste={"p2": 0.7})
+    column = LAURI_FEATURES.index("als_score")
+    assert list(rows[:, column]) == [0, 0.7]
+    assert column == len(LAURI_FEATURES) - 1  # new features go at the end
