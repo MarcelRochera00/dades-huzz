@@ -17,6 +17,7 @@ import hashlib
 import math
 import threading
 import time
+import tracemalloc
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -289,3 +290,53 @@ def _try(action: Callable[[], object]) -> None:
         action()
     except Exception as e:  # noqa: BLE001  remembering a take-out is best effort
         print(f"could not record a take-out: {e}", flush=True)
+
+
+def measure_version(
+    load: Callable[[], Recommend],
+    requests: list[Record],
+    state: State,
+    reference: Recommend,
+) -> dict[str, float]:
+    """What a version costs before it goes live: load time and memory, then on `requests` how many answers
+    are invalid (not 10 distinct available products), how many differ from `reference`, and time per call.
+
+    Memory is what Python allocates while loading (tracemalloc), so it reads the same on every system."""
+    tracemalloc.start()
+    started = time.perf_counter()
+    recommend = load()
+    load_s = time.perf_counter() - started
+    load_mb = tracemalloc.get_traced_memory()[0] / 2**20
+    tracemalloc.stop()
+    times, invalid, differs = [], 0, 0
+    for request in requests:
+        started = time.perf_counter()
+        items = recommend(request, state)
+        times.append((time.perf_counter() - started) * 1000)
+        invalid += not (
+            len(items) == 10 == len(set(items)) and set(items) <= state.available
+        )
+        differs += items != reference(request, state)
+    times.sort()
+    n = max(len(times), 1)
+    return {
+        "load_s": load_s,
+        "load_mb": load_mb,
+        "requests": len(requests),
+        "invalid": invalid,
+        "differs_pct": 100 * differs / n,
+        "p50_ms": times[len(times) // 2] if times else 0.0,
+        "p99_ms": times[int(len(times) * 0.99)] if times else 0.0,
+        "max_ms": times[-1] if times else 0.0,
+    }
+
+
+def main_thread_wait_ms(seconds: float, step_s: float = 0.05) -> float:
+    """The longest extra wait of a 50 ms sleep in this thread over `seconds`: what background work started by
+    the loaded versions (refresh threads) would add to the answering loop."""
+    worst, end = 0.0, time.monotonic() + seconds
+    while time.monotonic() < end:
+        started = time.perf_counter()
+        time.sleep(step_s)
+        worst = max(worst, (time.perf_counter() - started - step_s) * 1000)
+    return worst

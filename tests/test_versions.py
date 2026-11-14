@@ -4,7 +4,13 @@ import pytest
 
 from dades_huzz.data import State
 from dades_huzz.serving.report import conversion_interval_pct
-from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, Split, parse_split
+from dades_huzz.serving.versions import (
+    DEFAULT_SPLIT,
+    VERSIONS,
+    Split,
+    measure_version,
+    parse_split,
+)
 
 FALLBACK = tuple(f"p_{i:02d}" for i in range(20))
 STATE = State(
@@ -143,3 +149,24 @@ def test_the_split_reads_back_as_written_champion_first():
     split = Split({"a": champion, "b": challenger}, {"a": 70, "b": 30})
     assert split.describe() == "a=70,b=30"
     assert parse_split(split.describe()) == {"a": 70, "b": 30}
+
+
+def test_measuring_a_version_reports_load_cost_validity_and_speed():
+    requests = [{"request_id": f"r{i}", "recent_views": []} for i in range(20)]
+
+    def load():
+        time.sleep(0.05)
+        big = list(range(200_000))  # some memory kept by the version
+
+        def recommend(request, state):
+            return [*sorted(state.available)[:9], "p_gone"] if big else []
+
+        return recommend
+
+    row = measure_version(load, requests, STATE, reference=champion)
+    assert row["load_s"] >= 0.05
+    assert row["load_mb"] > 1
+    assert row["requests"] == 20
+    assert row["invalid"] == 20  # p_gone is not available
+    assert row["differs_pct"] == 100
+    assert 0 <= row["p99_ms"] <= row["max_ms"]
