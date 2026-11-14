@@ -29,7 +29,8 @@ def category_best_sellers(
     """Tati Destroyer: the best sellers of the category the shopper viewed last, then the overall ones.
 
     `category_of` maps a product to its category; `ranked_by_category` lists each category's products,
-    best seller first. Both are precomputed from the history. Only available products are shown.
+    best seller first. Both are precomputed from the history. A product added after they were built takes
+    its category from the live `state.category`. Only available products are shown.
 
     Products the shopper already viewed in this session are left out, unless `keep_viewed` (Tati
     Terminator): then they stay where they rank, because in the old log a viewed product shown in the top
@@ -63,7 +64,11 @@ def category_best_sellers(
 
     def recommend(request: Record, state: State) -> list[str]:
         viewed = [view["product_id"] for view in request.get("recent_views") or []]
-        category = category_of.get(viewed[-1]) if viewed else None
+        category = (
+            category_of.get(viewed[-1]) or state.category.get(viewed[-1])
+            if viewed
+            else None
+        )
         ranked = candidates(category, request.get("user_id"))
         answer: list[str] = []
         for product_id in reversed(viewed):
