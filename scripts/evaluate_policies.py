@@ -65,6 +65,13 @@ def main() -> None:
         "tati-terminator-category-viewed": category_best_sellers(
             signals.category_of, signals.ranked_by_category, keep_viewed=True
         ),
+        # live only: slate IPS cannot reward moving products to new slots
+        "tati-ultimatum-viewed-first": category_best_sellers(
+            signals.category_of,
+            signals.ranked_by_category,
+            keep_viewed=True,
+            viewed_first=3,
+        ),
     }
     reports = {
         name: evaluate(recommend, cases, state) for name, recommend in policies.items()
