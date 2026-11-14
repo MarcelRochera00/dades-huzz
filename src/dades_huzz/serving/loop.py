@@ -10,6 +10,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,7 +25,7 @@ from dades_huzz.data import (
     current_state,
     recently_changed,
 )
-from dades_huzz.features import apply_live_signals
+from dades_huzz.features import purchases_in_window, trend_scores
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.watchdog import mark_alive
 
@@ -45,6 +46,12 @@ TREND_REFRESH_S = 30
 LATE_UPDATE_MS = 120_000
 """Each read of catalogue updates goes back this far, so an update that lands in RawTree up to 2 minutes
 after a newer one is still read (about 30 rows per read)."""
+RELOAD_S = 60.0
+"""The whole catalogue, every catalogue update and the best sellers are read again this often, in their own
+thread: the final round switches to new data, which may replace the catalogue rather than update it."""
+RELOAD_MARGIN_MS = 5_000
+"""Updates the loop read up to this long before a reload started are kept through it, in case the reload
+missed them (RawTree shows an update up to about 2 s after its time)."""
 RECENT_CHANGE_MS = 10_000
 """Products whose stock changed this recently are never recommended (see `recently_changed`, issue #14)."""
 
@@ -98,7 +105,11 @@ class LiveState:
     """
 
     def __init__(
-        self, rawtree: RawTree, on_retry: Callable[[], None] = lambda: None
+        self,
+        rawtree: RawTree,
+        on_retry: Callable[[], None] = lambda: None,
+        reload_s: float = RELOAD_S,
+        signals_s: float = TREND_REFRESH_S,
     ) -> None:
         self.rawtree = rawtree
         self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
@@ -109,22 +120,73 @@ class LiveState:
                 lambda: rawtree.catalog_updates_since(0), "catalogue updates", on_retry
             )
         )
-        self.events: list[Record] = []
-        self.events_at = 0.0
-        self._load_events()
+        self._reloaded: tuple[int, list[Record], list[str], list[Record]] | None = None
+        self.signals: tuple[dict[str, int], dict[str, frozenset[str]]] = ({}, {})
+        self._read_signals()
         self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
+        threading.Thread(
+            target=self._reload_forever, args=(reload_s,), daemon=True
+        ).start()
+        threading.Thread(
+            target=self._signals_forever, args=(signals_s,), daemon=True
+        ).start()
 
-    def _load_events(self) -> None:
+    def _read_signals(self) -> None:
+        """Read the trend window and compute it once; every rebuild attaches the result as it is."""
         try:
-            self.events = self.rawtree.recent_events()
-            self.events_at = time.time()
+            events = self.rawtree.recent_events()
+            now = datetime.now(UTC)
+            self.signals = (trend_scores(events, now), purchases_in_window(events, now))
         except Exception as e:  # noqa: BLE001  a failed trend read keeps the previous window
             print(f"trend read failed: {e}", flush=True)
 
+    def _signals_forever(self, every_s: float) -> None:
+        """Own thread: reading and counting about 60,000 events takes about a second, which must not
+        hold up the stock refresh."""
+        while True:
+            time.sleep(every_s)
+            self._read_signals()
+
+    def _reload_forever(self, every_s: float) -> None:
+        """Read everything again; the refresh thread swaps it in, so only that thread changes the state."""
+        while True:
+            time.sleep(every_s)
+            try:
+                self._reloaded = (
+                    now_ms(),
+                    self.rawtree.catalog(),
+                    self.rawtree.best_sellers(),
+                    self.rawtree.catalog_updates_since(0),
+                )
+            except Exception as e:  # noqa: BLE001  keep the last full read; try again next time
+                print(f"catalogue reload failed: {e}", flush=True)
+
+    def _swap_in_reload(self) -> None:
+        started_ms, catalog, best_sellers, all_updates = self._reloaded  # type: ignore[misc]
+        self._reloaded = None
+        before = {row["product_id"] for row in self.catalog}
+        after = {row["product_id"] for row in catalog}
+        if before != after:
+            print(
+                f"catalogue changed: {len(after)} products"
+                f" ({len(after - before)} added, {len(before - after)} gone)",
+                flush=True,
+            )
+        updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
+        updates.add(all_updates)
+        # Only the rows read around and after the reload: anything older that RawTree no longer has is dropped.
+        updates.add(
+            row
+            for row in self.updates.rows
+            if row["ts_ms"] >= started_ms - RELOAD_MARGIN_MS
+        )
+        self.catalog, self.best_sellers, self.updates = catalog, best_sellers, updates
+
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
-        state = apply_live_signals(state, self.events, datetime.now(UTC))
+        trend, recent_purchases = self.signals
+        state = replace(state, trend=trend, recent_purchases=recent_purchases)
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
         )
@@ -136,6 +198,8 @@ class LiveState:
             time.sleep(
                 max(0.0, STATE_REFRESH_S - (now_ms() - self.refreshed_ms) / 1000)
             )
+            if self._reloaded is not None:
+                self._swap_in_reload()
             try:
                 rows = self.rawtree.catalog_updates_since(
                     self.updates.since_ms(now_ms())
@@ -146,8 +210,6 @@ class LiveState:
                 time.sleep(STATE_REFRESH_S)
                 continue
             new = self.updates.add(rows)
-            if time.time() - self.events_at >= TREND_REFRESH_S:
-                self._load_events()
             seen_ms = now_ms()
             for row in (
                 new
