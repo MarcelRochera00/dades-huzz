@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -28,7 +29,6 @@ from dades_huzz.dashboard_splits import (
     load_splits,
     purchase_difference,
     read_split_stats,
-    version_style,
 )
 from dades_huzz.dashboard_team import (
     comparison_periods,
@@ -36,6 +36,7 @@ from dades_huzz.dashboard_team import (
     read_health,
     read_trends,
 )
+from dades_huzz.dashboard_versions import version_style
 from dades_huzz.data import RawTree
 
 BARCELONA = ZoneInfo("Europe/Madrid")
@@ -49,19 +50,19 @@ TEAL = "#126e65"
 
 
 def version_scale(names) -> alt.Scale:
-    """Each version keeps its own colour (dashboard_splits.VERSION_STYLES) in every chart and range."""
+    """Each version keeps its own colour (dashboard_versions.VERSION_STYLES) in every chart and range."""
     names = sorted(set(names))
-    return alt.Scale(domain=names, range=[version_style(name)[0] for name in names])
+    return alt.Scale(domain=names, range=[version_style(name).colour for name in names])
 
 
 def version_legend(names) -> None:
     """One line per version: its colour, its name and what it does."""
     lines = []
     for name in dict.fromkeys(names):
-        colour, description = version_style(name)
+        style = version_style(name)
         lines.append(
-            f'<div style="margin:2px 0"><span style="color:{colour};font-size:1.1em">&#9679;</span> '
-            f"<code>{name}</code> &mdash; {description}</div>"
+            f'<div style="margin:2px 0"><span style="color:{style.colour};font-size:1.1em">&#9679;</span> '
+            f"<code>{escape(name)}</code> &mdash; {escape(style.description)}</div>"
         )
     st.html('<div style="font-size:0.88em">' + "".join(lines) + "</div>")
 
@@ -267,6 +268,7 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
                 "model_version:N",
                 title="Model version",
                 scale=version_scale(frame["model_version"]),
+                legend=None,
             ),
             tooltip=[
                 alt.Tooltip("Time (Barcelona):O", title="From"),

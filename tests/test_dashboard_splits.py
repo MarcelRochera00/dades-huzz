@@ -1,12 +1,6 @@
 from datetime import UTC, datetime
 
-from dades_huzz.dashboard_splits import (
-    HISTORICAL_SPLITS,
-    SplitPeriod,
-    read_split_stats,
-    version_style,
-)
-from dades_huzz.serving.versions import VERSIONS, parse_split
+from dades_huzz.dashboard_splits import SplitPeriod, read_split_stats
 
 
 class FakeRawTree:
@@ -19,24 +13,6 @@ class FakeRawTree:
     def query(self, sql, timeout=None):
         self.sql = sql
         return self.rows
-
-
-def test_every_live_and_historical_version_has_its_own_colour_and_description():
-    names = set(VERSIONS) | {
-        name for _, split in HISTORICAL_SPLITS for name in parse_split(split)
-    }
-    styles = {name: version_style(name) for name in names}
-    for name, (colour, description) in styles.items():
-        assert colour.startswith("#"), name
-        assert description and description != version_style("not-a-version")[1], name
-    live = [styles[name][0] for name in VERSIONS if not name.startswith("tati-0")]
-    assert len(set(live)) == len(live), "two live versions share a colour"
-
-
-def test_an_unknown_version_gets_a_neutral_style_instead_of_failing():
-    colour, description = version_style("some-new-version")
-    assert colour.startswith("#")
-    assert description
 
 
 def test_cold_requests_and_purchases_are_counted_per_assigned_version():

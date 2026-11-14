@@ -23,64 +23,6 @@ HISTORICAL_SPLITS = (
 )
 HISTORICAL_VERIFIED_THROUGH = datetime(2026, 11, 14, 16, 12, 3, tzinfo=UTC)
 
-_BASELINE = ("#8a96a3", "All-time best sellers in stock: the organisers' baseline.")
-VERSION_STYLES: dict[str, tuple[str, str]] = {
-    "baseline": _BASELINE,
-    "best-sellers": _BASELINE,
-    "tati-0-bestsellers": _BASELINE,
-    "tati-destroyer-category": (
-        "#606d34",
-        "Best sellers of the category the shopper viewed last.",
-    ),
-    "tati-terminator-category-viewed": (
-        "#126e65",
-        "Destroyer, keeping the products viewed in the session where they rank.",
-    ),
-    "tati-terminator-category-viewed-live": (
-        "#35a99a",
-        "Terminator, ranked by live sales since the switch with a tuned history prior.",
-    ),
-    "tati-terminator-live-subcat": (
-        "#3c8d5a",
-        "Terminator-live; a new shopper gets two best sellers of the subcategory viewed last on top.",
-    ),
-    "tati-terminator-live-cold": (
-        "#4a90c8",
-        "Terminator-live; cold requests are answered from the live trend.",
-    ),
-    "tati-ultimatum-viewed-first": (
-        "#a04e29",
-        "Terminator with up to 3 viewed products on top, latest first.",
-    ),
-    "tati-ultimatum-cold": (
-        "#c99a3a",
-        "Ultimatum; cold requests are answered from the live trend.",
-    ),
-    "tati-apocalypse-profile": (
-        "#1f3f7a",
-        "Terminator plus the shopper's favourite history categories; never shows what they bought.",
-    ),
-    "tati-armageddon-viewed-profile": (
-        "#814d88",
-        "Apocalypse with Ultimatum's viewed products on top.",
-    ),
-    "tati-omega-live-profile": (
-        "#ad4659",
-        "Apocalypse on the live ranking, with the subcategory first for new shoppers.",
-    ),
-    "lauri-titan-feedback": (
-        "#e07b00",
-        "Learned ranking: weights trained on our own carousels score each product for the shopper.",
-    ),
-}
-"""Every version's colour, the same in every chart, and one line on what it does."""
-UNKNOWN_STYLE = ("#b0b8c0", "No description yet: add it to VERSION_STYLES.")
-
-
-def version_style(name: str) -> tuple[str, str]:
-    """(colour, what it does) for a version name; a neutral style for one not described yet."""
-    return VERSION_STYLES.get(name, UNKNOWN_STYLE)
-
 
 # Compress consecutive heartbeats into intervals on the server. A gap or a blank
 # split from an older serving loop means coverage is unknown.
@@ -112,25 +54,33 @@ GROUP BY run_number
 ORDER BY start_ms
 """
 
+# The official cold definition (docs/contracts.md): a new shopper, or a request that viewed a product with a
+# `new_product` update before `end`. One row per request; `start` and `end` are SQL time expressions.
+COLD_FLAGS = """
+SELECT request_id::String AS id,
+       max(coalesce(is_new_user::Nullable(Bool), false)) AS new_shopper,
+       max(arrayExists(
+           view -> JSONExtractString(toJSONString(view), 'product_id') IN (
+               SELECT product_id::String FROM shop.catalog_updates
+               WHERE change::String = 'new_product' AND ts::DateTime64(3) < {end}
+           ),
+           recent_views::Array(Dynamic)
+       )) AS viewed_new_product
+FROM shop.requests
+WHERE ts::DateTime64(3) >= {start} AND ts::DateTime64(3) < {end}
+GROUP BY id
+"""
+
 # Use the same hash as Lane A A/B assignment but stop before paused versions are rerouted.
 # Reversing the first eight digest bytes makes ClickHouse's little-endian byte cast match Python.
 SPLIT_STATS = """
-WITH launches AS (
-    SELECT DISTINCT product_id::String AS product
-    FROM shop.catalog_updates
-    WHERE change::String = 'new_product'
-      AND ts::DateTime64(3) < fromUnixTimestamp64Milli({end_ms}, 'UTC')
-), active_requests AS (
-    SELECT request_id::String AS id,
-           max(coalesce(is_new_user::Nullable(Bool), false) OR arrayExists(
-               view -> JSONExtractString(toJSONString(view), 'product_id') IN (SELECT product FROM launches),
-               recent_views::Array(Dynamic)
-           )) AS cold
+WITH active_requests AS (
+    SELECT request_id::String AS id
     FROM shop.requests
     WHERE ts::DateTime64(3) >= fromUnixTimestamp64Milli({start_ms}, 'UTC')
       AND ts::DateTime64(3) < fromUnixTimestamp64Milli({end_ms}, 'UTC')
     GROUP BY id
-), latest_feedback AS (
+), cold_requests AS ({cold_flags}), latest_feedback AS (
     SELECT request_id::String AS id,
            argMax(tuple(served_by::String, shown::Array(String), purchased::String,
                         revenue_eur::Float64), ts::DateTime64(9)) AS outcome,
@@ -154,8 +104,9 @@ WITH launches AS (
            ) AS assigned_index,
            coalesce(f.has_feedback, 0) AS finished, f.outcome.1 AS shown_by,
            s.version_name AS actual, f.outcome.3 AS purchased, f.outcome.4 AS amount,
-           r.cold AS cold
+           c.new_shopper OR c.viewed_new_product AS cold
     FROM active_requests AS r
+    LEFT JOIN cold_requests AS c ON r.id = c.id
     LEFT JOIN latest_feedback AS f ON r.id = f.id
     LEFT JOIN submitted AS s ON r.id = s.id AND f.outcome.2 = s.items_shown
 )
@@ -315,6 +266,10 @@ def read_split_stats(rawtree: RawTree, period: SplitPeriod) -> SplitStats:
             team=rawtree.team,
             start_ms=_ms(period.start),
             end_ms=_ms(period.end),
+            cold_flags=COLD_FLAGS.format(
+                start=f"fromUnixTimestamp64Milli({_ms(period.start)}, 'UTC')",
+                end=f"fromUnixTimestamp64Milli({_ms(period.end)}, 'UTC')",
+            ),
             total_share=sum(shares.values()),
             cumulative_shares=list(accumulate(shares.values())),
         )
