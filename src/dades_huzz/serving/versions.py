@@ -20,11 +20,13 @@ from dades_huzz.features import (
     category_signals,
     live_category_signals,
     median_log_prices,
+    shopper_carts,
     shopper_profiles,
     shopper_purchases,
 )
 from dades_huzz.model import (
     best_sellers,
+    cart_first,
     category_best_sellers,
     lauri,
     load_lauri_weights,
@@ -46,6 +48,23 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         viewed_first=viewed_first,
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
+    )
+
+
+def _cart_profile(rawtree: RawTree) -> Recommend:
+    """Tati Cart: Apocalypse, with up to three products each returning shopper carted in the history and never
+    bought on top (docs/experiments.md row 46)."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = category_signals(rawtree, until=until)
+    return cart_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+        ),
+        shopper_carts(rawtree, until=until),
+        signals.category_of,
     )
 
 
@@ -140,6 +159,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
     ),
+    "tati-cart-profile": lambda rawtree: _cart_profile(rawtree),
     "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
     "lauri-colossus-feedback": lambda rawtree: _lauri(
         rawtree, "lauri-colossus-feedback", day=True

@@ -62,6 +62,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#ad4659",
         "Apocalypse on the live ranking, with the subcategory first for new shoppers.",
     ),
+    "tati-cart-profile": VersionStyle(
+        "#2a9d8f",
+        "Apocalypse with up to 3 products the shopper carted in the history and never bought on top.",
+    ),
     "lauri-titan-feedback": VersionStyle(
         "#e07b00",
         "Learned ranking: weights trained on our own carousels score each product for the shopper.",

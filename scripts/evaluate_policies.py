@@ -18,8 +18,13 @@ from dades_huzz.evaluation import (
     paired_difference,
     slate_ips_by_request,
 )
-from dades_huzz.features import best_sellers_until, category_signals, shopper_profiles
-from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.features import (
+    best_sellers_until,
+    category_signals,
+    shopper_carts,
+    shopper_profiles,
+)
+from dades_huzz.model import best_sellers, cart_first, category_best_sellers
 
 CUT = "2026-11-07 07:00:00"
 CAPS = (20, 50, 100)
@@ -48,6 +53,7 @@ def main() -> None:
     ranking = best_sellers_until(rawtree, args.cut)
     signals = category_signals(rawtree, args.cut)
     profiles = shopper_profiles(rawtree, args.cut)
+    carts = shopper_carts(rawtree, args.cut)
     cases = history_cases(rawtree, args.cut, every=10, parts=range(args.sample))
     # the history catalogue has no stock changes: every product the log knows is available
     available = frozenset(signals.category_of) | frozenset(ranking)
@@ -86,6 +92,16 @@ def main() -> None:
             keep_viewed=True,
             viewed_first=3,
             profiles=profiles,
+        ),
+        "tati-cart-profile": cart_first(
+            category_best_sellers(
+                signals.category_of,
+                signals.ranked_by_category,
+                keep_viewed=True,
+                profiles=profiles,
+            ),
+            carts,
+            signals.category_of,
         ),
     }
     reports = {

@@ -77,6 +77,25 @@ GROUP BY user_id"""
 """Every product each shopper bought before `until`: in the history, a snapshot from before the event, and live
 in shop.events, which keeps growing through Sunday (organisers, Sat 17:30)."""
 
+SHOPPER_CARTS = """
+SELECT user_id, arrayMap(x -> x.2, arrayReverseSort(x -> x.1, groupArray((last_cart, product_id)))) AS products
+FROM (
+    SELECT user_id::String AS user_id, product_id::String AS product_id, max(ts::DateTime64(3)) AS last_cart
+    FROM shop.history_events
+    WHERE event_type = 'add_to_cart' AND ts::DateTime64(3) < '{until}'
+    GROUP BY user_id, product_id
+)
+WHERE (user_id, product_id) NOT IN (
+    SELECT user_id::String, product_id::String FROM shop.history_events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+    UNION ALL
+    SELECT user_id::String, product_id::String FROM shop.events
+    WHERE event_type = 'purchase' AND ts::DateTime64(3) < '{until}'
+)
+GROUP BY user_id"""
+"""Each shopper's products added to the cart in the history and never bought (history or live), latest cart
+first. About 51,000 shoppers, median 5 products, in about 2 s."""
+
 
 @dataclass(frozen=True)
 class CategorySignals:
@@ -421,6 +440,16 @@ def shopper_purchases(rawtree: RawTree, until: str) -> dict[str, frozenset[str]]
     return {
         row["user_id"]: frozenset(row["products"])
         for row in rawtree.query(SHOPPER_PURCHASES.format(until=until), timeout=120)
+    }
+
+
+def shopper_carts(rawtree: RawTree, until: str) -> dict[str, tuple[str, ...]]:
+    """What each shopper put in the cart in the history and never bought, latest cart first. Live, such a
+    product shown in slots 1-3 to a returning shopper sold 70 times per 10,000 shows against 6.6 for the
+    other products, both unviewed in the session (docs/experiments.md row 46)."""
+    return {
+        row["user_id"]: tuple(row["products"])
+        for row in rawtree.query(SHOPPER_CARTS.format(until=until), timeout=120)
     }
 
 
