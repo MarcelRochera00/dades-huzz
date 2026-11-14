@@ -111,6 +111,10 @@ class Split:
         now = now_ms if now_ms is not None else wall_ms()
         return {name for name, until in self.out_until_ms.items() if until > now}
 
+    def describe(self) -> str:
+        """The split as `--versions` takes it, champion first: 'a=50,b=50'."""
+        return ",".join(f"{name}={share}" for name, share in self.shares.items())
+
     def version_for(self, request_id: str, now_ms: int | None = None) -> str:
         """Deterministic: a sha256 fingerprint of the id, not Python's hash(), which changes per process."""
         point = int.from_bytes(

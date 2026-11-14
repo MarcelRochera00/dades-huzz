@@ -2,6 +2,7 @@ import time
 
 from dades_huzz.data import State
 from dades_huzz.serving import answer, decide_role, repair, validate
+from dades_huzz.serving.handover import Handover
 from dades_huzz.serving.loop import LiveState
 from dades_huzz.serving.versions import Split
 
@@ -294,3 +295,28 @@ def test_live_state_forgets_updates_that_were_removed_from_rawtree():
     while "p_0" not in live.state.available and time.monotonic() < deadline:
         time.sleep(0.05)
     assert "p_0" in live.state.available
+
+
+class HeartbeatRawTree:
+    def __init__(self) -> None:
+        self.inserted: list[dict] = []
+
+    def server_now_ms(self):
+        return int(time.time() * 1000)
+
+    def insert(self, table, rows):
+        self.inserted.extend(rows)
+
+    def heartbeats_since(self, since_ms):
+        return []
+
+
+def test_the_heartbeat_carries_the_split_in_force_and_the_versions_left_out():
+    rawtree = HeartbeatRawTree()
+    Handover(
+        rawtree,
+        details=lambda: {"versions": "a=50,b=50", "out": "b"},
+    )
+    beat = rawtree.inserted[0]
+    assert beat["kind"] == "heartbeat"
+    assert (beat["versions"], beat["out"]) == ("a=50,b=50", "b")

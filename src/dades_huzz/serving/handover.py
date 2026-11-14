@@ -9,7 +9,7 @@ import socket
 import threading
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from dades_huzz.data import RawTree, Record
 
@@ -66,8 +66,16 @@ class Handover:
     """Writes this loop's heartbeat and decides its role in a background thread; `active` is all the answering
     loop reads. With `enabled=False` the loop is always active and nothing is written."""
 
-    def __init__(self, rawtree: RawTree, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        rawtree: RawTree,
+        enabled: bool = True,
+        details: Callable[[], dict[str, str]] = dict,
+    ) -> None:
+        """`details()` adds fields to every heartbeat: the loop passes the split in force (`versions`) and the
+        versions left out right now (`out`), so the history of splits can be read from `team_02.scratch`."""
         self.rawtree = rawtree
+        self.details = details
         self.loop_id = uuid.uuid4().hex[:8]
         self.host = socket.gethostname()
         self.started_ms = now_ms()
@@ -103,6 +111,10 @@ class Handover:
             "started_ms": self.started_ms,
             "ts_ms": now_ms(),
         }
+        try:
+            beat.update(self.details())
+        except Exception as e:  # noqa: BLE001  the details are for reading later; the beat must go out
+            print(f"heartbeat details failed: {e}", flush=True)
         heartbeats = None
         try:
             self.rawtree.insert("scratch", [beat])
