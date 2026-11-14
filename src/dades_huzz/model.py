@@ -18,10 +18,11 @@ from dades_huzz.features import (
 )
 from dades_huzz.serving.loop import ANSWER_SIZE, Recommend
 
-COLD_VIEWED_MAX = 3
-"""A cold answer opens at most this many category blocks with the product viewed in them."""
-BLANK_BOOKS = 3
-"""Slots a blank profile (cold, no views) always gives Books & Media, the category every device buys most."""
+BLANK_LEAD = 10.0
+"""A category leads the last 15 minutes' sales when its share beats the second's by this many points."""
+BLANK_LEADER_SLOTS = ((80.0, 8), (60.0, 5), (40.0, 4), (15.0, 3))
+"""(lowest share %, slots): the slots a blank profile (cold, no views) gives the leading category, by its
+share of the last 15 minutes' sales. Under 15 % it gets no slots of its own."""
 BLANK_CATEGORY_SHARE = {
     "android": {
         "Books & Media": 18.0,
@@ -61,8 +62,8 @@ BLANK_CATEGORY_SHARE = {
     },
 }
 """Per device, each category's share (%) of new shoppers' purchases in `shop.events` on Saturday (24,320
-purchases); 60 days of `shop.history_events` give the same order. A blank profile splits its slots after
-Books & Media by these shares."""
+purchases); 60 days of `shop.history_events` give the same order. A blank profile splits the slots the
+leading category leaves by these shares."""
 ANDROID_DEAREST_LEFT_OUT = 0.2
 """Android buys cheapest (median 18.99 EUR vs 23.99 ios, 24.99 web): a blank android profile never sees the
 dearest 20 % of a category."""
@@ -125,9 +126,18 @@ def category_best_sellers(
     """
     trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]
     band_cache: dict[str, tuple[State, frozenset[str]]] = {}
+    leader_cache: list[tuple[object, tuple[str, int] | None]] = [(None, None)]
 
     def category(product_id: str, state: State) -> str | None:
         return category_of.get(product_id) or state.category.get(product_id)
+
+    def leader(state: State) -> tuple[str, int] | None:
+        purchases, found = leader_cache[0]
+        if purchases is not state.recent_purchases:
+            purchases = state.recent_purchases
+            found = best_selling_category(purchases, lambda p: category(p, state))
+            leader_cache[0] = (purchases, found)
+        return found
 
     def out_of_band(state: State, device: str) -> frozenset[str]:
         cached = band_cache.get(device)
@@ -190,6 +200,7 @@ def category_best_sellers(
                 owned,
                 ranked_by_category,
                 lambda device: out_of_band(state, device),
+                leader(state),
             )
         last_category = category(viewed[-1], state) if viewed else None
         ranked = candidates(last_category, request.get("user_id"), state)
@@ -227,21 +238,26 @@ def cold_start_answer(
     owned: AbstractSet[str] = frozenset(),
     ranked_by_category: Mapping[str, Sequence[str]] | None = None,
     out_of_band: Callable[[str], AbstractSet[str]] | None = None,
+    leader: tuple[str, int] | None = None,
 ) -> list[str]:
     """The answer to a cold request, built from the live trend (`trending`: products, highest first).
 
-    A blank profile (no view of a known category) on a known device gets `blank_profile_answer` instead.
+    What the shopper carted today and did not buy (`state.shopper_carted`) always shows: in the block of
+    its category, or on top when they viewed nothing of that category.
+
+    A blank profile (no view of a known category) on a known device gets `blank_profile_answer` instead,
+    with the `leader` of the last 15 minutes' sales (`best_selling_category`).
 
     Each category the shopper viewed gets a share of the ANSWER_SIZE slots in proportion to its views
     (largest remainder; a tie goes to the category viewed last). Blocks follow by share, ties again to the
-    latest view. A block opens with the product last viewed in it (only in the COLD_VIEWED_MAX categories
-    viewed last), then that category's trending products. Slots left over take the global trend, then the
-    fallback. Without a view of a known category this is just the global trend. Unavailable products, the
-    shopper's recent purchases and what they `owned` from the history are never shown.
+    latest view. A block lists what was carted in that category, then what was viewed in it (latest first),
+    then the category's trending products and its best sellers; carted products may stretch it past its
+    share. Slots left over take the global trend, then the fallback. Without a view of a known category this
+    is just the global trend. Unavailable products, the shopper's recent purchases and what they `owned` from
+    the history are never shown.
     """
-    bought = owned | state.recent_purchases.get(
-        str(request.get("user_id")), frozenset()
-    )
+    user_id = str(request.get("user_id"))
+    bought = owned | state.recent_purchases.get(user_id, frozenset())
     answer: list[str] = []
 
     def add(product_id: str) -> None:
@@ -258,6 +274,16 @@ def cold_start_answer(
         if (category := category_of(product_id)) is not None:
             views[category] += 1
             last_view[category] = (position, product_id)
+    carted: dict[str, list[str]] = defaultdict(list)
+    for product_id in sorted(
+        state.shopper_carted.get(user_id, ()),
+        key=lambda p: (-state.trend.get(p, 0), p),
+    ):
+        carted[category_of(product_id) or ""].append(product_id)
+    for c, products in carted.items():
+        if c not in views:
+            for product_id in products:
+                add(product_id)
     device = (request.get("context") or {}).get("device")
     left_out: AbstractSet[str] = frozenset()
     if not views and device in BLANK_CATEGORY_SHARE and out_of_band is not None:
@@ -268,7 +294,10 @@ def cold_start_answer(
             category_of,
             ranked_by_category or {},
             lambda p: p in state.available and p not in bought and p not in left_out,
+            leader,
         ):
+            if len(answer) >= ANSWER_SIZE:
+                break
             add(product_id)
     if views:
         total = views.total()
@@ -281,17 +310,20 @@ def cold_start_answer(
         )
         for c in by_remainder[:leftover]:
             quota[c] += 1
-        by_recency = sorted(views, key=lambda c: last_view[c][0], reverse=True)
-        opens_with_view = set(by_recency[:COLD_VIEWED_MAX])
         in_category: dict[str, list[str]] = {c: [] for c in views}
+        for product_id in reversed(viewed):
+            if (c := category_of(product_id)) in in_category:
+                in_category[c].append(product_id)
         for product_id in trending:
             if (c := category_of(product_id)) in in_category:
                 in_category[c].append(product_id)
         for c in sorted(views, key=lambda c: (views[c], last_view[c][0]), reverse=True):
-            block_end = len(answer) + quota[c]
-            opening = [last_view[c][1]] if c in opens_with_view else []
-            for product_id in (*opening, *in_category[c]):
-                if len(answer) >= block_end:
+            block_start = len(answer)
+            for product_id in carted.get(c, ()):
+                add(product_id)
+            block_end = max(len(answer), block_start + quota[c])
+            for product_id in (*in_category[c], *(ranked_by_category or {}).get(c, ())):
+                if len(answer) >= min(block_end, ANSWER_SIZE):
                     break
                 add(product_id)
     for product_id in (*(p for p in trending if p not in left_out), *state.fallback):
@@ -307,15 +339,17 @@ def blank_profile_answer(
     category_of: Callable[[str], str | None],
     ranked_by_category: Mapping[str, Sequence[str]],
     eligible: Callable[[str], bool],
+    leader: tuple[str, int] | None = None,
 ) -> list[str]:
-    """For a cold shopper we know nothing about but their device: BLANK_BOOKS slots of Books & Media, then the
-    other categories by what that device buys (BLANK_CATEGORY_SHARE, largest remainder), a block per
-    category, the biggest share first. A block lists its category's trending products, then its best sellers,
-    keeping only `eligible` ones. A block that runs short leaves its slots to the caller's filler."""
+    """For a cold shopper we know nothing about but their device: the `leader` (category, slots) of the last
+    15 minutes' sales first, then the other categories by what that device buys (BLANK_CATEGORY_SHARE,
+    largest remainder), a block per category, the biggest share first. A block lists its category's trending
+    products, then its best sellers, keeping only `eligible` ones. A block that runs short leaves its slots
+    to the caller's filler."""
     shares = BLANK_CATEGORY_SHARE[device]
-    books = "Books & Media"
-    others = {c: share for c, share in shares.items() if c != books}
-    rest = ANSWER_SIZE - BLANK_BOOKS
+    first, first_slots = leader or ("", 0)
+    others = {c: share for c, share in shares.items() if c != first}
+    rest = ANSWER_SIZE - first_slots
     exact = {c: rest * share / sum(others.values()) for c, share in others.items()}
     quota = {c: math.floor(x) for c, x in exact.items()}
     by_remainder = sorted(
@@ -323,13 +357,16 @@ def blank_profile_answer(
     )
     for c in by_remainder[: rest - sum(quota.values())]:
         quota[c] += 1
-    quota[books] = BLANK_BOOKS
+    order = sorted(others, key=lambda c: -others[c])
+    if leader:
+        quota[first] = first_slots
+        order.insert(0, first)
     in_category: dict[str, list[str]] = {c: [] for c in quota}
     for product_id in trending:
         if (c := category_of(product_id)) in in_category:
             in_category[c].append(product_id)
     answer: list[str] = []
-    for c in [books, *sorted(others, key=lambda c: -others[c])]:
+    for c in order:
         block: list[str] = []
         for product_id in (*in_category[c], *ranked_by_category.get(c, ())):
             if len(block) == quota[c]:
@@ -342,6 +379,30 @@ def blank_profile_answer(
                 block.append(product_id)
         answer += block
     return answer
+
+
+def best_selling_category(
+    recent_purchases: Mapping[str, AbstractSet[str]],
+    category_of: Callable[[str], str | None],
+) -> tuple[str, int] | None:
+    """The category that leads the last 15 minutes' sales (`State.recent_purchases`) and the slots a blank
+    profile gives it (BLANK_LEADER_SLOTS), or None when no category leads the second by BLANK_LEAD points."""
+    sold: Counter[str] = Counter()
+    for products in recent_purchases.values():
+        for product_id in products:
+            if (c := category_of(product_id)) is not None:
+                sold[c] += 1
+    total = sold.total()
+    if not total:
+        return None
+    (first, n), *second = sold.most_common(2)
+    share = 100 * n / total
+    if share - (100 * second[0][1] / total if second else 0.0) < BLANK_LEAD:
+        return None
+    for lowest, slots in BLANK_LEADER_SLOTS:
+        if share >= lowest:
+            return first, slots
+    return None
 
 
 def price_band_left_out(
