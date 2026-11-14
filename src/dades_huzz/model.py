@@ -43,6 +43,7 @@ def category_best_sellers(
     profile_weight: float = PROFILE_WEIGHT,
     bought: Mapping[str, AbstractSet[str]] | None = None,
     cold_start: bool = False,
+    day_weight: float = 0.0,
 ) -> Recommend:
     """Tati Destroyer: the best sellers of the category the shopper viewed last, then the overall ones.
 
@@ -67,6 +68,9 @@ def category_best_sellers(
     (Discord, Sat 17:09): a shopper who bought a product is much less likely to buy it again, although the
     history was generated without that effect.
 
+    `day_weight` (Tati Omega+) adds the categories the shopper viewed today (`state.shopper_categories`,
+    an add-to-cart counts 3) the same way, at that weight: a new shopper has no history, but often a day.
+
     `cold_start` answers a cold request (a new shopper, or a view of a new product) from the live trend
     instead: see `cold_start_answer`. What the shopper bought is left out there too.
     """
@@ -85,14 +89,24 @@ def category_best_sellers(
             trend_cache[0] = (trend, ranked)
         return ranked
 
-    def candidates(category: str | None, user_id: str | None) -> Sequence[str]:
-        profile = (profiles or {}).get(user_id or "")
-        if not profile:
-            return ranked_by_category.get(category, ()) if category else ()
+    def candidates(
+        category: str | None, user_id: str | None, state: State
+    ) -> Sequence[str]:
         score: dict[str, float] = {category: 1.0} if category else {}
-        favourites = sorted(profile.items(), key=lambda item: (-item[1], item[0]))
-        for name, share in favourites[:PROFILE_TOP]:
-            score[name] = score.get(name, 0.0) + profile_weight * share
+        weighted = [((profiles or {}).get(user_id or ""), profile_weight)]
+        if day_weight:
+            day = state.shopper_categories.get(user_id or "") or {}
+            total = sum(day.values())
+            if total:
+                weighted.append(({c: n / total for c, n in day.items()}, day_weight))
+        if not any(profile for profile, _ in weighted):
+            return ranked_by_category.get(category, ()) if category else ()
+        for profile, weight in weighted:
+            favourites = sorted(
+                (profile or {}).items(), key=lambda item: (-item[1], item[0])
+            )
+            for name, share in favourites[:PROFILE_TOP]:
+                score[name] = score.get(name, 0.0) + weight * share
         merged = [
             ((rank + 1) / value, -value, name, rank, product_id)
             for name, value in score.items()
@@ -116,7 +130,7 @@ def category_best_sellers(
                 owned,
             )
         last_category = category(viewed[-1], state) if viewed else None
-        ranked = candidates(last_category, request.get("user_id"))
+        ranked = candidates(last_category, request.get("user_id"), state)
         answer: list[str] = []
         for product_id in reversed(viewed):
             if len(answer) == viewed_first:

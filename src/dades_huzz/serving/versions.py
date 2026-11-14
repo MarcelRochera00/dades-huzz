@@ -79,9 +79,10 @@ def _subcategory_first_live(rawtree: RawTree) -> Recommend:
     )
 
 
-def _omega(rawtree: RawTree) -> Recommend:
+def _omega(rawtree: RawTree, day_weight: float = 0.0) -> Recommend:
     """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
-    (#38), and for a new shopper with views the subcategory viewed last first (#46)."""
+    (#38), and for a new shopper with views the subcategory viewed last first (#46).
+    With `day_weight`, Tati Omega+: the categories viewed today (#54) count too, also for new shoppers."""
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     signals = live_category_signals(rawtree)
     return subcategory_first(
@@ -90,6 +91,7 @@ def _omega(rawtree: RawTree) -> Recommend:
             keep_viewed=True,
             profiles=shopper_profiles(rawtree, until=until),
             bought=shopper_purchases(rawtree, until=until),
+            day_weight=day_weight,
         ),
         signals.ranked_by_category,
         signals.category_of,
@@ -155,6 +157,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
     ),
     "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
+    "tati-omega-plus-day": lambda rawtree: _omega(rawtree, day_weight=3.0),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
