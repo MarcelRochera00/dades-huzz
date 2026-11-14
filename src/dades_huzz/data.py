@@ -36,6 +36,12 @@ class State:
     """Product weight in `shop.events` over the last 15 minutes: purchase 4, add-to-cart 3, view 1."""
     recent_purchases: dict[str, frozenset[str]] = field(default_factory=dict)
     """Shopper to the products they purchased in that same window. An answer leaves those out."""
+    shopper_categories: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Shopper to category to views today in `shop.events` (an add-to-cart counts 3), since the stream started."""
+    shopper_carted: dict[str, frozenset[str]] = field(default_factory=dict)
+    """Shopper to the products they carted today and have not bought since."""
+    shopper_viewed: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    """Shopper to their last 20 products viewed today, latest first (`recent_views` is only the session's tail)."""
 
 
 def current_state(

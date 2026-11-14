@@ -66,6 +66,9 @@ def recommend(request: Request, state: State) -> list[str]:
   | `subcategory` | `dict[str, str]` | Every product's subcategory, like `category` |
   | `trend` | `dict[str, int]` | Lane C. Each product's weight in `shop.events` over the last 15 minutes: purchase 4, add-to-cart 3, view 1. Refreshed every 30 s in the background |
   | `recent_purchases` | `dict[str, frozenset[str]]` | Lane C. Shopper to the products they purchased in that same window; an answer leaves them out |
+  | `shopper_categories` | `dict[str, dict[str, int]]` | Shopper (`user_id`) to category to views in `shop.events` since the stream started; an add-to-cart counts 3. Backfilled at start, then new events every 5 s |
+  | `shopper_carted` | `dict[str, frozenset[str]]` | Shopper to the products they carted since the stream started and have not bought since |
+  | `shopper_viewed` | `dict[str, tuple[str, ...]]` | Shopper to their last 20 distinct products viewed since the stream started, latest first |
 - **Precomputed signals** (co-views, similarities, profiles) are built offline and stored as rows in
   `team_02.scratch` (with a `kind`), not only as files in `outputs/`, which exists on one laptop; the
   serving loop loads them into `State`, on whichever laptop runs it.

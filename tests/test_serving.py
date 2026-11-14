@@ -131,6 +131,9 @@ class ChangingRawTree:
     def recent_events(self):
         return []
 
+    def query(self, sql, timeout=10):  # the shoppers' day: nothing happened
+        return []
+
 
 def test_live_state_picks_up_a_replaced_catalogue_without_a_restart():
     rawtree = ChangingRawTree([f"p_old_{i}" for i in range(10)])
@@ -194,6 +197,58 @@ def test_a_slow_events_read_never_holds_up_the_stock_refresh():
     rawtree = SlowEventsRawTree([f"p_{i}" for i in range(10)], read_s=0)
     live = LiveState(rawtree, signals_s=0.1)
     rawtree.read_s = 2  # from now on every events read takes 2 s
+    time.sleep(0.3)
+    oldest_ms = 0
+    for _ in range(10):
+        time.sleep(0.15)
+        oldest_ms = max(oldest_ms, int(time.time() * 1000) - live.refreshed_ms)
+    assert oldest_ms < 1000
+
+
+def test_the_shoppers_day_reaches_the_state_backfill_first_then_new_events():
+    rawtree = ChangingRawTree(["p_toy1", "p_toy2"])
+    rawtree.categories = {"p_toy1": "Toys", "p_toy2": "Toys"}
+
+    def catalog():
+        return [
+            {"product_id": p, "price_eur": 1.0, "is_active": True, "category": "Toys"}
+            for p in rawtree.products
+        ]
+
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: (
+            [{"u": "u1", "c": "Toys", "n": 2}],
+            [{"u": "u1", "p": "p_toy2"}],
+            [{"u": "u1", "v": ["p_toy2"]}],
+        ),
+        read_events=lambda since_ms: [
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 1000}
+        ],
+    )
+    deadline = time.monotonic() + 3
+    while live.state.shopper_viewed.get("u1", ())[:1] != ("p_toy1",):
+        assert time.monotonic() < deadline, live.state
+        time.sleep(0.02)
+    assert live.state.shopper_categories == {"u1": {"Toys": 3}}
+    assert live.state.shopper_carted == {"u1": frozenset({"p_toy2"})}
+    assert live.state.shopper_viewed == {"u1": ("p_toy1", "p_toy2")}
+
+
+def test_a_slow_shoppers_read_never_holds_up_the_stock_refresh():
+    def slow(*_):
+        time.sleep(2)
+        return []
+
+    live = LiveState(
+        ChangingRawTree([f"p_{i}" for i in range(10)]),
+        shoppers_s=0.05,
+        read_events=slow,
+        read_day=lambda until_ms: ([], [], []),
+    )
     time.sleep(0.3)
     oldest_ms = 0
     for _ in range(10):
