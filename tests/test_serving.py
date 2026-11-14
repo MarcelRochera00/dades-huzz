@@ -303,3 +303,51 @@ def test_hot_subcategories_reach_the_state_from_the_backfilled_window():
         assert time.monotonic() < deadline, live.state.hot_subcategories
         time.sleep(0.02)
     assert set(live.state.hot_subcategories) == {"Kettles"}
+
+
+def test_brands_view_counts_and_region_sales_reach_the_state():
+    rawtree = ChangingRawTree(["p_toy1", "p_tv"])
+
+    def catalog():
+        return [
+            {
+                "product_id": "p_toy1",
+                "price_eur": 1.0,
+                "is_active": True,
+                "category": "Toys",
+                "brand": "Lego",
+            },
+            {
+                "product_id": "p_tv",
+                "price_eur": 1.0,
+                "is_active": True,
+                "category": "Electronics",
+                "brand": "Sony",
+            },
+        ]
+
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], [], [{"u": "u1", "b": "Sony", "n": 2}]),
+        read_events=lambda since_ms: [
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 1000, "g": "Madrid"},
+            {"u": "u1", "p": "p_toy1", "e": "view", "t": now + 2000, "g": "Madrid"},
+            {"u": "u2", "p": "p_tv", "e": "purchase", "t": now + 3000, "g": "Galicia"},
+        ],
+        read_heat=lambda until_ms: ({}, []),
+        read_region=lambda until_ms: [{"g": "Madrid", "p": "p_tv", "n": 5}],
+    )
+    deadline = time.monotonic() + 3
+    while not live.state.region_purchases.get("Galicia"):
+        assert time.monotonic() < deadline, live.state
+        time.sleep(0.02)
+    assert live.state.brand == {"p_toy1": "Lego", "p_tv": "Sony"}
+    assert live.state.shopper_brands == {"u1": {"Sony": 2, "Lego": 2}}
+    assert live.state.shopper_view_counts == {"u1": {"p_toy1": 2}}
+    assert live.state.region_purchases == {
+        "Madrid": {"p_tv": 5},
+        "Galicia": {"p_tv": 1},
+    }

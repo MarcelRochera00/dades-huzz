@@ -236,3 +236,9 @@ def test_an_update_without_price_keeps_the_last_known_price():
     state = current_state(CATALOG, rows, [])
     assert state.price["p_a"] == 10.0
     assert "p_a" not in state.available
+
+
+def test_every_product_has_its_brand_including_products_added_during_the_event():
+    catalog = [{**CATALOG[0], "brand": "Lego"}]
+    rows = [{**update("p_new", "new_product", "2026-11-14 10:00:00"), "brand": "Sony"}]
+    assert current_state(catalog, rows, []).brand == {"p_a": "Lego", "p_new": "Sony"}

@@ -29,12 +29,18 @@ from dades_huzz.data import (
 from dades_huzz.features import purchases_in_window, trend_scores
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.shoppers import (
+    EMPTY,
     ShopperDay,
     Snapshot,
     read_backfill,
     read_events_since,
 )
-from dades_huzz.serving.trends import SubcategoryHeat, read_heat_backfill
+from dades_huzz.serving.trends import (
+    RegionSales,
+    SubcategoryHeat,
+    read_heat_backfill,
+    read_region_backfill,
+)
 from dades_huzz.serving.watchdog import mark_alive
 
 if TYPE_CHECKING:  # split.py imports Recommend from this module
@@ -124,6 +130,7 @@ class LiveState:
         read_events: Callable[[int], list[Record]] | None = None,
         read_day: Callable[[int], tuple[list[Record], ...]] | None = None,
         read_heat: Callable[[int], tuple[dict[str, int], list[Record]]] | None = None,
+        read_region: Callable[[int], list[Record]] | None = None,
     ) -> None:
         self.rawtree = rawtree
         self._read_events = read_events or (
@@ -133,7 +140,11 @@ class LiveState:
         self._read_heat = read_heat or (
             lambda until: read_heat_backfill(rawtree, until)
         )
-        self.shoppers: Snapshot = ({}, {}, {})
+        self._read_region = read_region or (
+            lambda until: read_region_backfill(rawtree, until)
+        )
+        self.shoppers: Snapshot = EMPTY
+        self.regions: dict[str, dict[str, int]] = {}
         self.hot: dict[str, float] = {}
         self._shoppers_backfilled = False
         self.shoppers_ready = threading.Event()
@@ -171,10 +182,22 @@ class LiveState:
         events every `every_s`. Neither ever waits on, nor holds up, the stock refresh or the answers."""
         day = ShopperDay()
         heat = SubcategoryHeat()
+        regions = RegionSales()
         start_ms = now_ms()
-        backfill_due = heat_due = 0.0
-        backfilled = heat_backfilled = False
+        backfill_due = heat_due = region_due = 0.0
+        backfilled = heat_backfilled = region_backfilled = False
         while True:
+            if not region_backfilled and time.monotonic() >= region_due:
+                try:
+                    regions.add_day(self._read_region(start_ms))
+                    gc.freeze()  # 25k region-product counts: kept out of full collections (#59)
+                    region_backfilled = True
+                except Exception as e:  # noqa: BLE001  region sales stay partial; try again later
+                    print(
+                        f"region sales backfill failed, retrying in 60 s: {str(e)[:120]}",
+                        flush=True,
+                    )
+                    region_due = time.monotonic() + 60
             if not heat_backfilled and time.monotonic() >= heat_due:
                 try:  # cheap (about 1 s): first, so trends are watched from the start
                     counts, recent = self._read_heat(start_ms)
@@ -207,8 +230,12 @@ class LiveState:
                 new = day.add(
                     (row for row in rows if row["t"] >= start_ms),
                     self.state.category.get,
+                    self.state.brand.get,
                 )
-                heat.add(self._purchases(row for row in new if row["e"] == "purchase"))
+                purchases = [row for row in new if row["e"] == "purchase"]
+                heat.add(self._purchases(purchases))
+                regions.add((row["g"], row["p"]) for row in purchases if row.get("g"))
+                self.regions = regions.snapshot()
                 if (
                     heat_backfilled
                 ):  # without the day's counts every subcategory would look new, so hot
@@ -273,15 +300,18 @@ class LiveState:
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
         trend, recent_purchases = self.signals
-        categories, carted, viewed = self.shoppers
+        day = self.shoppers
         state = replace(
             state,
             trend=trend,
             recent_purchases=recent_purchases,
-            shopper_categories=categories,
-            shopper_carted=carted,
-            shopper_viewed=viewed,
+            shopper_categories=day.categories,
+            shopper_carted=day.carted,
+            shopper_viewed=day.viewed,
+            shopper_brands=day.brands,
+            shopper_view_counts=day.view_counts,
             hot_subcategories=self.hot,
+            region_purchases=self.regions,
         )
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
