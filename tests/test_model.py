@@ -103,3 +103,59 @@ def test_category_best_sellers_can_put_the_latest_viewed_products_first():
     assert answer[:6] == ["v_4", "v_3", "v_2", "e_1", "v_1", "e_2"]
     assert len(answer) == 10
     assert len(set(answer)) == 10
+
+
+def test_a_returning_shopper_without_views_gets_their_favourite_categories():
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Apocalypse: returning shoppers without views convert at 0.1 % on the overall best sellers;
+    # their history says which categories they like
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={"toys": ["t_1", "t_2"], "books": ["b_1"]},
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 0.75, "books": 0.25}},
+    )
+    state = _state(extra={"t_1", "t_2", "b_1"})
+    answer = recommend({"user_id": "u_1", "recent_views": []}, state)
+    # toys ranks k get priority (k+1)/0.375, books (k+1)/0.125: t_1 2.7, t_2 5.3, b_1 8
+    assert answer[:4] == ["t_1", "t_2", "b_1", "p_00"]
+    assert len(set(answer)) == 10
+
+
+def test_the_profile_blends_with_the_category_viewed_last_at_half_weight():
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={"v_last": "electronics"},
+        ranked_by_category={
+            "electronics": ["e_1", "e_2", "e_3"],
+            "toys": ["t_1", "t_2"],
+        },
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 1.0}},
+    )
+    state = _state(extra={"e_1", "e_2", "e_3", "t_1", "t_2", "v_last"})
+    request = {"user_id": "u_1", "recent_views": [{"product_id": "v_last"}]}
+    # electronics scores 1 (viewed last), toys 0.5: rank k costs k+1 and 2(k+1); a tie goes to the
+    # higher-scoring category
+    assert recommend(request, state)[:5] == ["e_1", "e_2", "t_1", "e_3", "t_2"]
+
+
+def test_a_shopper_without_a_profile_gets_exactly_terminator():
+    from dades_huzz.model import category_best_sellers
+
+    signals = {
+        "category_of": {"v_last": "electronics"},
+        "ranked_by_category": {"electronics": ["e_1", "v_last", "e_2"]},
+    }
+    terminator = category_best_sellers(**signals, keep_viewed=True)
+    apocalypse = category_best_sellers(
+        **signals, keep_viewed=True, profiles={"u_other": {"toys": 1.0}}
+    )
+    state = _state(extra={"e_1", "e_2", "v_last"})
+    for request in (
+        {"user_id": "u_new", "recent_views": [{"product_id": "v_last"}]},
+        {"user_id": "u_new", "recent_views": []},
+    ):
+        assert apocalypse(request, state) == terminator(request, state)
