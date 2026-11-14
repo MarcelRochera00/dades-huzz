@@ -5,10 +5,10 @@ Lane C scores the live stream: a trend is the weighted count of `shop.events` ov
 """
 
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from dades_huzz.data import RawTree, Record, State
+from dades_huzz.data import RawTree, Record
 
 CATEGORY_RANKING = """
 SELECT e.product_id AS product_id, c.category AS category, count() AS n
@@ -121,22 +121,6 @@ def purchases_in_window(
             str(event["product_id"])
         )
     return {user_id: frozenset(products) for user_id, products in bought.items()}
-
-
-def bought_in_window(
-    events: Iterable[Record], user_id: str, now: datetime
-) -> frozenset[str]:
-    """Products this shopper purchased in the same 15-minute window (organic events only)."""
-    return purchases_in_window(events, now).get(user_id, frozenset())
-
-
-def apply_live_signals(state: State, events: Iterable[Record], now: datetime) -> State:
-    """A state whose trend and recent purchases come from these organic events."""
-    return replace(
-        state,
-        trend=trend_scores(events, now),
-        recent_purchases=purchases_in_window(events, now),
-    )
 
 
 def best_sellers_until(rawtree: RawTree, until: str) -> list[str]:

@@ -1,11 +1,6 @@
 from datetime import datetime
 
-from dades_huzz.features import (
-    apply_live_signals,
-    bought_in_window,
-    category_signals,
-    trend_scores,
-)
+from dades_huzz.features import category_signals, purchases_in_window, trend_scores
 
 
 class FakeRawTree:
@@ -36,7 +31,7 @@ def test_trend_scores_weight_the_last_fifteen_minutes():
     assert trend_scores(events, now) == {"p_a": 5, "p_b": 3}
 
 
-def test_bought_in_window_is_this_shoppers_purchases_in_the_same_fifteen_minutes():
+def test_purchases_in_window_are_each_shoppers_purchases_in_the_same_fifteen_minutes():
     now = datetime(2026, 11, 14, 13, 33)
     events = [
         {
@@ -64,37 +59,10 @@ def test_bought_in_window_is_this_shoppers_purchases_in_the_same_fifteen_minutes
             "user_id": "u1",
         },
     ]
-    assert bought_in_window(events, "u1", now) == frozenset({"p_a"})
-
-
-def test_apply_live_signals_puts_the_trend_and_purchases_on_the_state():
-    from dades_huzz.data import State
-
-    now = datetime(2026, 11, 14, 13, 33)
-    events = [
-        {
-            "ts": "2026-11-14 13:20:00",
-            "event_type": "purchase",
-            "product_id": "p_a",
-            "user_id": "u1",
-        },
-        {
-            "ts": "2026-11-14 13:25:00",
-            "event_type": "view",
-            "product_id": "p_a",
-            "user_id": "u1",
-        },
-    ]
-    state = State(
-        available=frozenset({"p_a"}),
-        price={},
-        new_products=frozenset(),
-        fallback=("p_a",),
-    )
-    live = apply_live_signals(state, events, now)
-    assert live.trend == {"p_a": 5}
-    assert live.recent_purchases == {"u1": frozenset({"p_a"})}
-    assert live.available == state.available
+    assert purchases_in_window(events, now) == {
+        "u1": frozenset({"p_a"}),
+        "u2": frozenset({"p_b"}),
+    }
 
 
 def test_category_signals_know_the_category_of_products_added_during_the_event():
