@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,6 +36,7 @@ from dades_huzz.dashboard_team import (
     read_health,
     read_trends,
 )
+from dades_huzz.dashboard_versions import version_style
 from dades_huzz.data import RawTree
 
 BARCELONA = ZoneInfo("Europe/Madrid")
@@ -45,8 +47,24 @@ st.set_page_config(page_title="Tati · Recommendation dashboard", layout="wide")
 st.html(Path(__file__).with_name("dashboard.css"))
 
 TEAL = "#126e65"
-BLUE = "#2b5a8e"
-VERSION_COLORS = [TEAL, BLUE, "#a04e29", "#814d88", "#606d34", "#687484", "#ad4659"]
+
+
+def version_scale(names) -> alt.Scale:
+    """Each version keeps its own colour (dashboard_versions.VERSION_STYLES) in every chart and range."""
+    names = sorted(set(names))
+    return alt.Scale(domain=names, range=[version_style(name).colour for name in names])
+
+
+def version_legend(names) -> None:
+    """One line per version: its colour, its name and what it does."""
+    lines = []
+    for name in dict.fromkeys(names):
+        style = version_style(name)
+        lines.append(
+            f'<div style="margin:2px 0"><span style="color:{style.colour};font-size:1.1em">&#9679;</span> '
+            f"<code>{escape(name)}</code> &mdash; {escape(style.description)}</div>"
+        )
+    st.html('<div style="font-size:0.88em">' + "".join(lines) + "</div>")
 
 
 def chart_style(chart):
@@ -249,7 +267,8 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
             color=alt.Color(
                 "model_version:N",
                 title="Model version",
-                scale=alt.Scale(range=VERSION_COLORS),
+                scale=version_scale(frame["model_version"]),
+                legend=None,
             ),
             tooltip=[
                 alt.Tooltip("Time (Barcelona):O", title="From"),
@@ -292,6 +311,7 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
     st.altair_chart(
         chart_style(chart.properties(height=330)), theme=None, width="stretch"
     )
+    version_legend(sorted(frame["model_version"].unique()))
     st.caption(
         "Shaded windows show overlapping traffic. Dashed lines mark recorded split changes."
         if changes
@@ -340,6 +360,7 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
         "Organizer fallback means the organizers showed their own backup list. "
         "Rates use assigned requests with feedback. Pending requests are counted separately."
     )
+    version_legend(period.shares)
     backups = []
     sales = []
     shares = period.shares
@@ -370,6 +391,12 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
                 "Revenue / request": f"€{row.revenue_eur / complete:.3f}"
                 if complete
                 else "—",
+                "Cold purchases / 100": (
+                    f"{100 * row.cold_purchases / row.cold_completed:.2f} "
+                    f"(of {row.cold_completed:,})"
+                )
+                if row.cold_completed
+                else "—",
             }
         )
     backups_tab, sales_tab = st.tabs(["Backup use", "Purchase results"])
@@ -383,7 +410,9 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
     with sales_tab:
         st.dataframe(sales, hide_index=True, width="stretch")
         st.caption(
-            "Purchase results include what happened after either backup was shown."
+            "Purchase results include what happened after either backup was shown. "
+            "Cold: a new shopper, or a request that viewed a product added during the event "
+            "(the official cold definition, 10 of the 100 points)."
         )
         show_purchase_differences(stats)
 
