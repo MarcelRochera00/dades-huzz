@@ -1,11 +1,37 @@
-"""Team-wide dashboard measurements that are independent of version assignment."""
+"""Prepare comparison windows and measurements for the Team dashboard."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
+from dades_huzz.dashboard_splits import SplitPeriod
 from dades_huzz.data import RawTree, Record
 from dades_huzz.features import CATALOG_CATEGORY
 
 COLD_LABELS = ("New shopper only", "Viewed a new product only", "Both")
+
+
+def comparison_periods(periods: list[SplitPeriod]) -> list[SplitPeriod]:
+    """Keep a planned test together across pauses in consecutive serving records."""
+    tests: list[SplitPeriod] = []
+    for period in periods:
+        if len(period.shares) < 2:
+            continue
+        previous = tests[-1] if tests else None
+        if (
+            previous is not None
+            and previous.end == period.start
+            and previous.configuration == period.configuration
+            and previous.source == period.source
+        ):
+            tests[-1] = replace(
+                previous,
+                end=period.end,
+                out=tuple(sorted(set(previous.out) | set(period.out))),
+            )
+        else:
+            tests.append(period)
+    return tests
+
 
 # Keep the newest feedback if a request has more than one feedback row.
 FEEDBACK = """

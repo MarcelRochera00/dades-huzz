@@ -1,7 +1,6 @@
 """Private Streamlit dashboard for the RawTree team and jury demo."""
 
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -30,7 +29,12 @@ from dades_huzz.dashboard_splits import (
     purchase_difference,
     read_split_stats,
 )
-from dades_huzz.dashboard_team import read_cold_groups, read_health, read_trends
+from dades_huzz.dashboard_team import (
+    comparison_periods,
+    read_cold_groups,
+    read_health,
+    read_trends,
+)
 from dades_huzz.data import RawTree
 
 BARCELONA = ZoneInfo("Europe/Madrid")
@@ -297,24 +301,7 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
 
 def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
     st.subheader("How often did a backup answer?")
-    tests: list[SplitPeriod] = []
-    for period in periods:
-        if len(period.shares) < 2:
-            continue
-        previous = tests[-1] if tests else None
-        if (
-            previous is not None
-            and previous.end == period.start
-            and previous.configuration == period.configuration
-            and previous.source == period.source
-        ):
-            tests[-1] = replace(
-                previous,
-                end=period.end,
-                out=tuple(sorted(set(previous.out) | set(period.out))),
-            )
-        else:
-            tests.append(period)
+    tests = comparison_periods(periods)
     if not tests:
         st.info("No recorded side-by-side test is available yet.")
         return
