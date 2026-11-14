@@ -3,7 +3,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from dades_huzz.dashboard_splits import SplitPeriod
+from dades_huzz.dashboard_splits import COLD_FLAGS, SplitPeriod
 from dades_huzz.data import RawTree, Record
 from dades_huzz.features import CATALOG_CATEGORY
 
@@ -68,20 +68,7 @@ LEFT JOIN feedback AS f ON r.id = f.id
 """
 
 COLD_GROUPS = """
-WITH launches AS (
-    SELECT DISTINCT product_id::String AS product
-    FROM shop.catalog_updates
-    WHERE change::String = 'new_product' AND ts::DateTime64(3) < {end}
-), active_requests AS (
-    SELECT request_id::String AS id,
-           coalesce(is_new_user::Nullable(Bool), false) AS new_shopper,
-           arrayExists(
-               view -> JSONExtractString(toJSONString(view), 'product_id') IN (SELECT product FROM launches),
-               recent_views::Array(Dynamic)
-           ) AS viewed_new_product
-    FROM shop.requests
-    WHERE ts::DateTime64(3) >= {start} AND ts::DateTime64(3) < {end}
-), feedback AS ({feedback})
+WITH active_requests AS ({cold_flags}), feedback AS ({feedback})
 SELECT multiIf(r.new_shopper AND r.viewed_new_product, 'Both',
                r.new_shopper, 'New shopper only', 'Viewed a new product only') AS group_name,
        count() AS requests,
@@ -135,8 +122,9 @@ def read_health(rawtree: RawTree, end: datetime) -> Record:
 def read_cold_groups(rawtree: RawTree, end: datetime) -> list[Record]:
     """Return mutually exclusive official cold groups for the last 30 minutes."""
     sql = COLD_GROUPS.format(
-        start=_sql_time(end - timedelta(minutes=30)),
-        end=_sql_time(end),
+        cold_flags=COLD_FLAGS.format(
+            start=_sql_time(end - timedelta(minutes=30)), end=_sql_time(end)
+        ),
         feedback=FEEDBACK.format(team=rawtree.team),
     )
     by_label = {row["group_name"]: row for row in rawtree.query(sql)}

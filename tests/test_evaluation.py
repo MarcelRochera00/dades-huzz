@@ -236,3 +236,53 @@ def test_carousel_report_only_counts_the_held_out_rows():
     score = np.arange(6, dtype=float)
     held_out = carousel_report(score, score, purchased, slot, request, request == 1)
     assert held_out["requests"] == 1 and held_out["purchases"] == 1
+
+
+def test_live_signal_rates_count_each_shown_product_by_kind_and_slot():
+    from dades_huzz.evaluation import signal_rates
+
+    category_of = {
+        "v_1": "toys",
+        "t_1": "toys",
+        "b_1": "books",
+        "g_1": "garden",
+        "x_1": "pets",
+    }
+    profiles = {"u_old": {"books": 0.6, "garden": 0.3, "pets": 0.1}}
+    answers = [
+        {
+            # a returning shopper who viewed v_1 (toys) and bought the favourite-category product
+            "request": {
+                "user_id": "u_old",
+                "is_new_user": False,
+                "recent_views": [{"product_id": "v_1"}],
+            },
+            "items": ["v_1", "b_1", "t_1", "g_1", "x_1"],
+            "purchased": "b_1",
+        },
+        {
+            # a new shopper without views: everything is "other"
+            "request": {"user_id": "u_new", "is_new_user": True, "recent_views": []},
+            "items": ["t_1"],
+            "purchased": "",
+        },
+    ]
+    rows = {
+        (r["shopper"], r["kind"], r["slots"]): (r["shows"], r["purchases"])
+        for r in signal_rates(answers, category_of, profiles)
+    }
+    assert rows == {
+        ("returning", "viewed this session", "1-3"): (1, 0),
+        ("returning", "favourite category", "1-3"): (1, 1),
+        ("returning", "category viewed last", "1-3"): (1, 0),
+        ("returning", "2nd-3rd favourite category", "4-10"): (2, 0),
+        ("new", "other", "1-3"): (1, 0),
+    }
+
+
+def test_a_rate_comes_with_a_95_percent_interval():
+    from dades_huzz.evaluation import wilson
+
+    low, high = wilson(purchases=5, shows=100)
+    assert 0.02 < low < 0.05 < high < 0.12
+    assert wilson(purchases=0, shows=0) == (0.0, 1.0)
