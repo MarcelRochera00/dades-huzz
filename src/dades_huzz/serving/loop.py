@@ -27,6 +27,12 @@ from dades_huzz.data import (
 )
 from dades_huzz.features import purchases_in_window, trend_scores
 from dades_huzz.serving.handover import Handover, now_ms
+from dades_huzz.serving.shoppers import (
+    ShopperDay,
+    Snapshot,
+    read_backfill,
+    read_events_since,
+)
 from dades_huzz.serving.watchdog import mark_alive
 
 if TYPE_CHECKING:  # split.py imports Recommend from this module
@@ -52,6 +58,8 @@ thread: the final round switches to new data, which may replace the catalogue ra
 RELOAD_MARGIN_MS = 5_000
 """Updates the loop read up to this long before a reload started are kept through it, in case the reload
 missed them (RawTree shows an update up to about 2 s after its time)."""
+SHOPPERS_S = 5.0
+"""How often new `shop.events` rows are read for the shoppers' day (a few hundred rows each time)."""
 RECENT_CHANGE_MS = 10_000
 """Products whose stock changed this recently are never recommended (see `recently_changed`, issue #14)."""
 
@@ -110,8 +118,16 @@ class LiveState:
         on_retry: Callable[[], None] = lambda: None,
         reload_s: float = RELOAD_S,
         signals_s: float = TREND_REFRESH_S,
+        shoppers_s: float = SHOPPERS_S,
+        read_events: Callable[[int], list[Record]] | None = None,
+        read_day: Callable[[int], tuple[list[Record], ...]] | None = None,
     ) -> None:
         self.rawtree = rawtree
+        self._read_events = read_events or (
+            lambda since: read_events_since(rawtree, since)
+        )
+        self._read_day = read_day or (lambda until: read_backfill(rawtree, until))
+        self.shoppers: Snapshot = ({}, {}, {})
         self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
         self.best_sellers = until_ok(rawtree.best_sellers, "best sellers", on_retry)
         self.updates = UpdateLog(overlap_ms=LATE_UPDATE_MS)
@@ -131,6 +147,42 @@ class LiveState:
         threading.Thread(
             target=self._signals_forever, args=(signals_s,), daemon=True
         ).start()
+        threading.Thread(
+            target=self._shoppers_forever, args=(shoppers_s,), daemon=True
+        ).start()
+
+    def _shoppers_forever(self, every_s: float) -> None:
+        """Own thread: backfill each shopper's day up to now (about 15 s of RawTree reads), then count only new
+        events every `every_s`. Neither ever waits on, nor holds up, the stock refresh or the answers."""
+        day = ShopperDay()
+        start_ms = now_ms()
+        backfill_due = 0.0
+        backfilled = False
+        while True:
+            if not backfilled and time.monotonic() >= backfill_due:
+                try:
+                    day.add_backfill(*self._read_day(start_ms))
+                    backfilled = True
+                    print(
+                        f"shoppers' day backfilled: {len(day.snapshot()[0])} shoppers",
+                        flush=True,
+                    )
+                except Exception as e:  # noqa: BLE001  live counting goes on; try the backfill again later
+                    print(
+                        f"shoppers' day backfill failed, retrying in 60 s: {str(e)[:120]}",
+                        flush=True,
+                    )
+                    backfill_due = time.monotonic() + 60
+            try:
+                rows = self._read_events(day.since_ms(start_ms))
+                day.add(
+                    (row for row in rows if row["t"] >= start_ms),
+                    self.state.category.get,
+                )
+                self.shoppers = day.snapshot()
+            except Exception as e:  # noqa: BLE001  keep the last snapshot
+                print(f"shoppers' events read failed: {str(e)[:120]}", flush=True)
+            time.sleep(every_s)
 
     def _read_signals(self) -> None:
         """Read the trend window and compute it once; every rebuild attaches the result as it is."""
@@ -186,7 +238,15 @@ class LiveState:
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
         trend, recent_purchases = self.signals
-        state = replace(state, trend=trend, recent_purchases=recent_purchases)
+        categories, carted, viewed = self.shoppers
+        state = replace(
+            state,
+            trend=trend,
+            recent_purchases=recent_purchases,
+            shopper_categories=categories,
+            shopper_carted=carted,
+            shopper_viewed=viewed,
+        )
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
         )
