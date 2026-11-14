@@ -1,4 +1,4 @@
-"""Offline evaluation of a `recommend(request, state)` on the history (lane B, docs/experiments.md)."""
+"""Offline evaluation of a `recommend(request, state)` on the old carousel log (lane B, docs/experiments.md)."""
 
 import math
 import random
