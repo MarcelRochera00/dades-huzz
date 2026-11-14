@@ -1,90 +1,123 @@
-# Pitch
+# Jury pitch and demo
 
-Practice draft for the Sunday jury. The team will choose the final model version, presenter and
-demo language. Refresh the results at each sync.
+The team will choose the final model version and spoken demo language. Destroyer and Terminator are
+the examples for Saturday practice. Use Barcelona time throughout.
 
-## Opening
+## Initial pitch · 3–5 minutes, led by the dashboard
 
-“When a shopper opens the product carousel, we have three seconds to choose and order ten available
-products. We want more of those visits to turn into purchases, even when a shopper has just arrived
-or has looked at a product that was just added to the store.” [Challenge brief](challenge/brief.md)
+**Question for the jury.** Would you give a challenger more traffic based on this test? The demo
+answers it with one recorded comparison, then shows what the shopper-facing results look like.
 
-## How we built Tati
+Start from the [README launch command](../README.md#lane-d-dashboard) on the presentation laptop.
+In **Team**, preselect **Compare versions from → 14 Nov 15:56:31 CET** and leave **Backup use** ready
+for the opening. Check that the comparison ends at **16:06:06 CET** and the table shows Destroyer and
+Terminator. In a second local tab, prepare **Jury → Practice → `tati-terminator-category-viewed`**.
+Using two prepared tabs saves time and preserves each view's selections.
 
-1. **Start with the products that already sell.** The old carousel showed best sellers often.
-   Across two million historical carousel requests, the first slot recorded about **0.45 purchases
-   per 100 times shown**, and the fifth recorded **0.10**. That gave us a reason to test which
-   products should go first. We used earlier history to build the lists, then checked them on later
-   history, accounting for how often the old system showed each product in each slot.
-   [History findings](https://github.com/ProGabo/dades-huzz/issues/5#issuecomment-6877885738) ·
-   [Offline experiments 3–5](experiments.md)
-2. **Use what the shopper just did and what is selling now.** Destroyer ranks best sellers in the
-   shopper's last-viewed category. Terminator also lets recently viewed products appear. Other
-   candidates give those products higher positions, use recent store activity for shoppers and
-   products with little history, or update category rankings as products sell. The organizers
-   confirmed that stock changes and new products keep arriving on Sunday.
-   [Experiments 4, 14, 16 and 30](experiments.md) · [Sunday data](challenge/qa.md)
-3. **Compare versions on the same traffic.** The serving loop gives each request one assigned
-   version. The Team view compares what happened to those requests, including any that needed a
-   backup. The team also checks whether a purchase lead is clear enough to act on and whether the
-   version can keep answering on time. [Dashboard plan](challenge/side-challenge.md)
+### Three-minute rehearsal and backup script
 
-## Practice results to present
+**0:00–0:40 · Team, Backup use**
 
-**Headline.** In a Saturday practice window from **15:30 to 15:50 Barcelona time**, Destroyer reached
-**1.04 expected purchases per 100 requests** on the organizers' practice leaderboard, compared with
-**0.75** for our best-seller version in the same window. The organizers reported 1,843 and 1,757 requests,
-respectively. That supported using the shopper's last-viewed category as the next starting point.
-Use this window as the spoken example. [Experiment 17](experiments.md)
+> “A shopper opens the carousel. We have three seconds to pick ten available products. Our first
+> question is whether using what the shopper just viewed helps us sell more. Destroyer recommends
+> best sellers from the last category they viewed. Terminator also lets products the shopper
+> already viewed appear. We ran both at the same time, with a planned 50/50 split, so each had to
+> answer under the same store conditions.”
 
-| Show | Practice evidence | What to say |
+**0:40–1:40 · Click Purchase results, then return to Backup use**
+
+> “Would you give Terminator more traffic on this evidence? Destroyer recorded nine purchases
+> from 837 assigned requests. Terminator recorded eight from 888. The observed gap is small.
+> Look at the range. It spans from about 1.2 fewer to 0.8 more purchases per 100 requests for
+> Terminator. Either version could be ahead, so this purchase sample alone calls for more traffic
+> in the test before choosing a winner.”
+>
+> “Now check how reliably each version answered. The organizers' fallback covered 22 Destroyer
+> requests and nine Terminator requests. I'd check why those fallbacks happened before giving
+> either version more traffic.”
+
+Point to the range and say that it crosses zero. Point to the **Organizer fallback** column when you
+switch back. Treat the traffic decision as what this sample supports. The team also used the
+organizers' expected purchase rates to make practice decisions. [Experiments 17–20](experiments.md)
+
+**1:40–2:30 · Switch to the prepared Jury tab**
+
+> “So far we've compared every request we assigned, even if it needed a backup. Here I'm asking
+> a shopper-facing question. What happened when people actually saw Terminator's list? This is
+> the broader Practice run. These cards show purchases and sales from confirmed displays. You
+> can see when those purchases happened and how far the feedback has arrived.”
+
+Read **Purchases**, **Sales**, and the **Feedback through** timestamp from the screen. Point once to
+**Purchases over time**. In the checked snapshot at **18:43 CET on 14 November**, the cards showed
+**167 simulated purchases**, **€6,490.33 in simulated sales**, and **0.92 purchases per 100 times
+shown** across **18,249 confirmed displays**. Use the current cards when recording. When presenting
+final results, choose **Final** and the team's selected model version if feedback is available.
+Read the **Official team score** when published. It also reflects cold requests and reliability,
+and it uses the simulator's purchase probabilities.
+
+**2:30–3:00 · Stay on Jury**
+
+> “RawTree gives us the store activity to build the recommendations, the requests to answer, and
+> the feedback to see what shoppers actually did. That gives the team evidence to decide which
+> version to run and to check whether it can answer reliably.”
+
+### If the slot is four or five minutes
+
+- **One extra minute for what we learned.** Before switching to Jury, use **Which cold requests need help?** to
+  distinguish a new shopper from someone who viewed a newly added product. Explain why both can
+  have little history and where recent store activity may help. Use the visible time window when
+  discussing the chart or table.
+- **One extra minute for how the team iterated.** Before the Destroyer–Terminator walkthrough,
+  say that Destroyer reached **1.04 expected purchases per 100 requests** versus **0.75** for our
+  best-seller version from **15:30 to 15:50 CET** (1,843 and 1,757 requests). Those are organizers'
+  estimates from a different test. That result supported taking the last-viewed category forward
+  as the next starting point. Explain why the time window matters. Morning and afternoon shoppers
+  can behave differently, so a version's rate from another hour would mix those changes with the
+  effect of the recommendations. Keep the on-screen comparison on Destroyer–Terminator.
+  [Experiment 17](experiments.md)
+
+### Recording the backup
+
+Record the three-minute Practice walkthrough on the presentation laptop. Keep the round label and
+feedback timestamp visible in Jury. Save it locally as `outputs/jury-practice-demo.mp4` and check the
+audio and playback with the network off. If the browser or live data fails, introduce the clip as
+Saturday practice and play it. If only final feedback is pending, switch to the prepared Practice
+tab and say which results are pending. Rehearsal timing, recording and offline playback are pending.
+
+## Finalist presentation · three slides and one live interaction
+
+Confirm the finalist slot length with the organizers. Use the slides to explain the recommendation
+and the evidence behind it. Reserve the live interaction for the decision the jury can check.
+
+| Slide | What to show | What the jury should understand |
 | --- | --- | --- |
-| Team · Purchase results | In the 15:56:31–16:06:06 split, Terminator got 8 purchases from 888 assigned requests and Destroyer got 9 from 837. Terminator's difference was **−0.17 per 100**, with a **95% range of −1.23 to +0.83**. | The range crosses zero, so either version could have the higher purchase rate. |
-| Team · Backup use | In the same split, the organizers' backup answered **22 of 837 Destroyer requests (2.63%)** and **9 of 888 Terminator requests (1.01%)**. There were no confirmed takeovers by our own backup. | Check whether a version can serve its share of traffic before giving it more. |
-| Jury · Terminator, Practice | With practice feedback through **18:09 Barcelona time on Saturday 14 November**, the list was shown **17,059 times**, with **154 confirmed simulated purchases**, **€5,812.46 in simulated sales** and **0.90 purchases per 100 times shown**. | These cards describe the selected version's confirmed displays. The official team score uses the simulator's purchase probabilities and also considers cold requests and reliability. |
+| **1. One shopper, ten products, three seconds** | Follow a shopper who just viewed a product added during the event. Show the RawTree request and catalogue updates, how the recommender checks availability and ranks candidates, and the ordered list written back to RawTree. Use an illustrative request and the rules of the team's selected version. | Why shopper context, current stock and live store activity matter. |
+| **2. What made us change the recommendation** | Show the historical slot observation (0.45 purchases per 100 displays in slot 1 versus 0.10 in slot 5), then the Destroyer versus our best-seller version practice result. Label the first as historical observation and the second as the organizers' expected purchase rates for versions tested during the same window. | How the team used history to form a hypothesis and a live test to decide what to try next. |
+| **3. What we chose and how we know** | State the team's final choice when available, the evidence used to choose it, and one limitation. Use a still of the Jury results with the round and timestamp visible. If available, label the official team score separately from the confirmed purchases and sales. | What the system delivered and where the evidence is still uncertain. |
 
-The practice leaderboard headline comes from the organizers' expected purchase rates. The Team
-example counts confirmed purchases by original assignment. Every assigned request in that example
-had feedback. The Jury example counts confirmed
-purchases when feedback identifies the selected version's list as the one shown. The table gives
-fixed rehearsal figures. Read the round and feedback timestamp aloud if the live totals differ.
-The final results line is for the team to fill in once the organizers publish the score.
+**One live interaction between slides 2 and 3.** Prepare **Team → Backup use** on the agreed
+comparison window. Click **Purchase results** once to reveal the difference and its range. Give
+the decision in one sentence. For rehearsal with the Destroyer–Terminator window, say the observed
+purchase gap leaves the lead uncertain and the backup counts give the team a reliability question
+to investigate. For the finalist session, use the team's chosen evidence and verified numbers.
+If the dashboard is unavailable, show a prepared still of the same comparison while delivering
+the same sentence.
 
-## RawTree in one minute
+### Evidence for rehearsal and jury questions
 
-- **Learn.** SQL counts past purchases by product and joins store activity with the catalogue to
-  learn which categories a returning shopper has used. Live sales counts come from `shop.events`.
-  [Feature queries](../src/dades_huzz/features.py)
-- **Serve.** The loop reads `shop.requests`, applies stock and catalogue updates, then writes ten
-  ordered product IDs and the version name to `team_02.submissions` within three seconds.
-  [Serving contract](contracts.md)
-- **Measure.** RawTree joins each request to submissions and feedback by request ID. The Team view
-  uses the request ID and the split settings to count backup answers under the originally assigned
-  version. For this rehearsal window it uses the team's recorded settings. For new splits it reads
-  the serving loop's updates in `team_02.scratch`. [Team query](../src/dades_huzz/dashboard_splits.py) ·
-  [Jury query](../src/dades_huzz/dashboard_jury.py)
-
-## What we would do with more time
-
-Run larger same-window comparisons for new shoppers and for shoppers who viewed a newly added
-product. That would help us tell which use of live store activity helps each group.
-
-## Demo plan
-
-Rehearse a three-minute version and confirm the slot length with the team. Use the local dashboard
-on the presentation laptop. Run the [README command](../README.md#lane-d-dashboard) from the repo
-root before the session and have both views ready.
-
-| Time | On screen | What to do |
-| --- | --- | --- |
-| 0:00–0:35 | Team · Recommendation monitor | Explain the ten-product and three-second goal. Give the practice headline, then point to valid and on-time answers. |
-| 0:35–1:30 | Team · Compare versions from **14 Nov 15:56:31 CET** | Open **Purchase results**, read the difference and range, and say why the purchase lead is uncertain. Open **Backup use** to show how often each side needed help. |
-| 1:30–2:20 | Jury · Recommendation results | In rehearsal choose **Practice**, then `tati-terminator-category-viewed`. Read purchases, sales and purchases per 100 displays, then point to purchases over time. At the jury, choose **Final** and the team's selected version when its feedback is ready. Read the official team score when it is published. |
-| 2:20–3:00 | Jury view stays on screen | Close with the three RawTree steps and explain how the team chose the final version from same-window practice evidence and reliability. |
-
-**Backup.** Record a local screen capture of the rehearsal with **Practice** visible. Include the
-Team comparison, the Jury cards and the feedback timestamp. Save it as `outputs/jury-practice-demo.mp4`
-on the presentation laptop and test playback with the network off. If the live data or browser fails,
-play the recording and introduce it as Saturday practice. If Final feedback or the official score is
-still pending, say which result is pending and use the labeled practice example. Recording and
-playback check are pending.
+- **History and method.** The history notebook used 60 days of data, including two million old
+  carousel requests. The model team built lists using earlier days and checked them on later
+  days, accounting for how often the old carousel showed each product in each slot.
+  [History findings](https://github.com/ProGabo/dades-huzz/issues/5#issuecomment-6877885738) ·
+  [Experiments 3–5, 14 and 17](experiments.md)
+- **RawTree inputs and outputs.** SQL counts purchases by product and joins store activity with
+  the catalogue. The serving loop reads `shop.requests` and catalogue updates, then writes ten
+  ordered IDs and a version name to `team_02.submissions`. The dashboard joins feedback by request
+  ID. The rehearsal window uses the team's recorded split, and newer splits come from the active
+  loop's records in `team_02.scratch`.
+  [Feature queries](../src/dades_huzz/features.py) · [Serving contract](contracts.md) ·
+  [Team query](../src/dades_huzz/dashboard_splits.py) · [Jury query](../src/dades_huzz/dashboard_jury.py)
+- **What to test next.** Run larger same-window comparisons for new shoppers and for shoppers
+  who viewed a newly added product, so the team can see which use of live store activity helps
+  each group. The catalogue continues receiving updates during the final.
+  [Sunday data](challenge/qa.md) · [Dashboard plan](challenge/side-challenge.md) · [Judging brief](challenge/brief.md)
