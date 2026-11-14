@@ -957,6 +957,33 @@ def test_hot_first_puts_the_hottest_subcategorys_live_best_sellers_in_slots_2_an
     assert recommend({"user_id": "u", "recent_views": []}, calm) == base(None, None)
 
 
+def test_titan_max_shape_cold_goes_to_the_cold_rule_and_returning_gets_the_trend():
+    """lauri-titan-max is cold_first(hot_first(Titan+ 100 deep, ...), cold rule): a cold request never sees
+    the trend injection, a returning one does."""
+    from dataclasses import replace
+
+    from dades_huzz.model import cold_first, hot_first
+
+    products = [f"a_{i}" for i in range(12)] + ["b_0", "b_1"]
+    state = replace(
+        _lauri_state(
+            subcategory={p: "kettles" if p[0] == "b" else "a" for p in products}
+        ),
+        hot_subcategories={"kettles": 4.0},
+    )
+
+    def titan_plus_100(request, state):
+        return [f"a_{i}" for i in range(10)]
+
+    def cold_rule(request, state):
+        return [f"a_{i}" for i in range(11, 1, -1)]
+
+    recommend = cold_first(hot_first(titan_plus_100, {"b": ["b_0", "b_1"]}), cold_rule)
+    returning = {"user_id": "u", "is_new_user": False, "recent_views": []}
+    assert recommend({**returning, "is_new_user": True}, state) == cold_rule(None, None)
+    assert recommend(returning, state)[:3] == ["a_0", "b_0", "b_1"]
+
+
 def _with(state, **fields):
     return State(**{**vars(state), **fields})
 
