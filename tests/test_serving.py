@@ -265,3 +265,41 @@ def test_the_loop_says_when_the_shoppers_day_is_backfilled():
         read_events=lambda since_ms: [],
     )
     assert live.shoppers_ready.wait(timeout=3)
+
+
+def test_hot_subcategories_reach_the_state_from_the_backfilled_window():
+    rawtree = ChangingRawTree(["p_kettle", "p_book"])
+
+    def catalog():
+        return [
+            {
+                "product_id": "p_kettle",
+                "price_eur": 1.0,
+                "is_active": True,
+                "subcategory": "Kettles",
+            },
+            {
+                "product_id": "p_book",
+                "price_eur": 1.0,
+                "is_active": True,
+                "subcategory": "Books",
+            },
+        ]
+
+    rawtree.catalog = catalog
+    now = int(time.time() * 1000)
+    live = LiveState(
+        rawtree,
+        shoppers_s=0.05,
+        read_day=lambda until_ms: ([], [], []),
+        read_events=lambda since_ms: [],
+        read_heat=lambda until_ms: (
+            {"Books": 900, "Kettles": 100},
+            [{"p": "p_kettle", "t": now - 60_000 + i} for i in range(40)],
+        ),
+    )
+    deadline = time.monotonic() + 3
+    while "Kettles" not in live.state.hot_subcategories:
+        assert time.monotonic() < deadline, live.state.hot_subcategories
+        time.sleep(0.02)
+    assert set(live.state.hot_subcategories) == {"Kettles"}

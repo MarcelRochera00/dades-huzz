@@ -69,6 +69,7 @@ def recommend(request: Request, state: State) -> list[str]:
   | `shopper_categories` | `dict[str, dict[str, int]]` | Shopper (`user_id`) to category to views in `shop.events` since the stream started; an add-to-cart counts 3. Backfilled at start, then new events every 5 s |
   | `shopper_carted` | `dict[str, frozenset[str]]` | Shopper to the products they carted since the stream started and have not bought since |
   | `shopper_viewed` | `dict[str, tuple[str, ...]]` | Shopper to their last 20 distinct products viewed since the stream started, latest first |
+  | `hot_subcategories` | `dict[str, float]` | Subcategories selling at least 2x their day share in the last 15 min, with at least 25 extra purchases; value = that ratio. Empty when nothing trends (`serving/trends.py`) |
 - **Precomputed signals** (co-views, similarities, profiles) are built offline and stored as rows in
   `team_02.scratch` (with a `kind`), not only as files in `outputs/`, which exists on one laptop; the
   serving loop loads them into `State`, on whichever laptop runs it.

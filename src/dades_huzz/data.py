@@ -41,6 +41,9 @@ class State:
     shopper_carted: dict[str, frozenset[str]] = field(default_factory=dict)
     """Shopper to the products they carted today and have not bought since."""
     shopper_viewed: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    hot_subcategories: dict[str, float] = field(default_factory=dict)
+    """Subcategories selling far above their normal level in the last 15 min, each with how many times its day
+    share it sells (`serving/trends.py`). Empty when nothing is trending."""
     """Shopper to their last 20 products viewed today, latest first (`recent_views` is only the session's tail)."""
 
 

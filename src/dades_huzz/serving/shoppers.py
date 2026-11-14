@@ -129,13 +129,16 @@ class ShopperDay:
 
     def add(
         self, rows: Iterable[Record], category_of: Callable[[str], str | None]
-    ) -> None:
-        """Count new event rows, in time order. A row already counted (read again in the overlap) is skipped."""
+    ) -> list[Record]:
+        """Count new event rows, in time order, and return them. A row already counted (read again in the
+        overlap) is skipped and not returned."""
+        new: list[Record] = []
         for row in sorted(rows, key=lambda r: r["t"]):
             key = (row["u"], row["p"], row["e"], row["t"])
             if key in self._keys:
                 continue
             self._keys[key] = row["t"]
+            new.append(row)
             self.newest_ms = max(self.newest_ms, row["t"])
             user, product, kind = row["u"], sys.intern(row["p"]), row["e"]
             if kind in ("view", "add_to_cart") and (category := category_of(product)):
@@ -158,6 +161,7 @@ class ShopperDay:
             self._changed.add(user)
         oldest_kept = self.newest_ms - 2 * self.overlap_ms
         self._keys = {k: t for k, t in self._keys.items() if t >= oldest_kept}
+        return new
 
     def add_backfill(
         self,
