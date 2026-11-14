@@ -91,8 +91,8 @@ Apocalypse, Tati Armageddon, Tati Omega; the model version is `tati-<rank>-<idea
 rank only once it beats the champion live. Tati versions rank products by rules. _Avoid_: the bot, the
 model.
 
-**Lauri**: our second recommender family, for versions that learn the chance of a purchase from the old
-carousel log instead of following rules. Its ranks, in order: Lauri Titan, Lauri Colossus, Lauri
+**Lauri**: our second recommender family, for versions that learn the chance of a purchase from what
+happened with carousels (our own answers, or the old carousel log) instead of following rules. Its ranks, in order: Lauri Titan, Lauri Colossus, Lauri
 Singularity; the model version is `lauri-<rank>-<idea>`, and ranks are won as for Tati.
 
 **Returning shopper**: a shopper who is not new (`is_new_user` false) and so has past activity in the

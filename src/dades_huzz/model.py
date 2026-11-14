@@ -1,10 +1,19 @@
 """Recommenders: each is a `recommend(request, state) -> list[str]` function (docs/contracts.md)."""
 
+import json
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 
-from dades_huzz.data import Record, State
+import numpy as np
+
+from dades_huzz.data import RawTree, Record, State
+from dades_huzz.features import (
+    LAURI_FEATURES,
+    LauriSignals,
+    LauriTrainingRows,
+    lauri_features,
+)
 from dades_huzz.serving.loop import ANSWER_SIZE
 
 Recommend = Callable[[Record, State], list[str]]
@@ -199,3 +208,256 @@ def cold_start_answer(
             break
         add(product_id)
     return answer
+
+
+SUBCATEGORY_TOP = 2
+"""Live, a new shopper with views bought an unviewed product of the subcategory viewed last 0.88 % of the time
+in slots 1-2 against 0.32 % for another subcategory of the same category; slot 3 showed no effect
+(docs/experiments.md row 35)."""
+
+
+def subcategory_first(
+    base: Recommend,
+    ranked_by_category: Mapping[str, Sequence[str]],
+    category_of: Mapping[str, str] | None = None,
+    top: int = SUBCATEGORY_TOP,
+) -> Recommend:
+    """For a new shopper with views: the `top` best sellers of the subcategory they viewed last (not viewed,
+    available) go first, then `base`'s answer without them. Everyone else gets `base`'s answer unchanged.
+
+    The subcategory's order comes from its category's list in `ranked_by_category` (live with #38's
+    ranking), each product's subcategory from the live `state.subcategory`."""
+
+    def recommend(request: Record, state: State) -> list[str]:
+        answer = base(request, state)
+        viewed = [view["product_id"] for view in request.get("recent_views") or []]
+        if not request.get("is_new_user") or not viewed:
+            return answer
+        last = viewed[-1]
+        category = state.category.get(last) or (category_of or {}).get(last)
+        subcategory = state.subcategory.get(last)
+        if not category or not subcategory:
+            return answer
+        picks: list[str] = []
+        for product_id in ranked_by_category.get(category, ()):
+            if len(picks) == top:
+                break
+            if (
+                product_id not in viewed
+                and product_id in state.available
+                and state.subcategory.get(product_id) == subcategory
+            ):
+                picks.append(product_id)
+        rest = [product_id for product_id in answer if product_id not in picks]
+        return (picks + rest)[:ANSWER_SIZE]
+
+    return recommend
+
+
+LAURI_SEGMENTS = ("new", "returning")
+"""Lauri keeps one set of weights per kind of shopper: a new one has no history, so other signals carry them."""
+LAURI_PER_CATEGORY = 30
+LAURI_PER_SUBCATEGORY = 15
+LAURI_PER_LIST = 20
+"""How many candidates each source gives Lauri: a category's ranking, the subcategory viewed last, and the
+trend and the fallback."""
+SLOTS = 10
+
+LauriWeights = Mapping[str, Mapping[str, object]]
+"""Per segment: `weights` (one per LAURI_FEATURES, on the feature's own scale), and what only training
+knows: `bias`, `slot` (one per slot after the first) and `owned`."""
+
+LATEST_LAURI_WEIGHTS = """
+SELECT weights::String AS weights
+FROM {team}.scratch
+WHERE kind::String = 'lauri_weights' AND name::String = '{name}'
+ORDER BY ts_ms::Int64 DESC
+LIMIT 1"""
+
+
+def fit_logistic(
+    features: np.ndarray, target: np.ndarray, l2: float = 10.0, steps: int = 50
+) -> tuple[float, np.ndarray]:
+    """L2 logistic regression by Newton steps on standardised columns: (bias, weights), both back on the
+    columns' own scale. The bias is not penalised."""
+    mean, std = features.mean(0), features.std(0)
+    std[std == 0] = 1.0
+    columns = np.c_[np.ones(len(features)), (features - mean) / std]
+    penalty = np.eye(columns.shape[1]) * l2
+    penalty[0, 0] = 0
+    beta = np.zeros(columns.shape[1])
+    for _ in range(steps):
+        chance = 1 / (1 + np.exp(-columns @ beta))
+        gradient = columns.T @ (chance - target) + penalty @ beta
+        hessian = (columns * (chance * (1 - chance))[:, None]).T @ columns + penalty
+        step = np.linalg.solve(hessian, gradient)
+        beta -= step
+        if np.abs(step).max() < 1e-8:
+            break
+    weights = beta[1:] / std
+    return float(beta[0] - mean @ weights), weights
+
+
+def _training_columns(rows: LauriTrainingRows) -> np.ndarray:
+    """LAURI_FEATURES, then what only training knows: the slot after the first, and `owned`."""
+    return np.c_[rows.features, np.eye(SLOTS)[rows.slot][:, 1:], rows.owned]
+
+
+def fit_lauri(
+    rows: LauriTrainingRows, keep: np.ndarray, target: np.ndarray, l2: float = 10.0
+) -> dict[str, dict[str, object]]:
+    """Lauri's weights from the training rows in `keep`. The slot a product was shown in and whether the
+    shopper already owned it are fitted next to the features, so they do not leak into the features'
+    weights, and are then left out when serving: we choose the slot, and never show an owned product."""
+    columns, n = _training_columns(rows), len(LAURI_FEATURES)
+    fitted = {}
+    for segment, mask in zip(
+        LAURI_SEGMENTS, (rows.is_new_user, ~rows.is_new_user), strict=True
+    ):
+        bias, weights = fit_logistic(columns[keep & mask], target[keep & mask], l2)
+        fitted[segment] = {
+            "bias": bias,
+            "weights": weights[:n].tolist(),
+            "slot": weights[n:-1].tolist(),
+            "owned": float(weights[-1]),
+        }
+    return fitted
+
+
+def lauri_scores(
+    weights: LauriWeights, rows: LauriTrainingRows
+) -> tuple[np.ndarray, np.ndarray]:
+    """For every training row: the logit as it was shown (with slot and owned), and the score Lauri would
+    rank it by live (features only)."""
+    columns = _training_columns(rows)
+    shown, served = np.zeros(len(columns)), np.zeros(len(columns))
+    for segment, mask in zip(
+        LAURI_SEGMENTS, (rows.is_new_user, ~rows.is_new_user), strict=True
+    ):
+        w = weights[segment]
+        full = np.r_[w["weights"], w["slot"], w["owned"]]
+        shown[mask] = w["bias"] + columns[mask] @ full
+        served[mask] = rows.features[mask] @ np.array(w["weights"])
+    return shown, served
+
+
+def save_lauri_weights(
+    rawtree: RawTree, name: str, weights: LauriWeights, ts_ms: int
+) -> None:
+    """Store the weights in our scratch table, so the serving loop loads them on any laptop."""
+    row = {
+        "kind": "lauri_weights",
+        "name": name,
+        "ts_ms": ts_ms,
+        "features": list(LAURI_FEATURES),
+        "weights": json.dumps(weights),
+    }
+    rawtree.insert("scratch", [row], timeout=10)
+
+
+def load_lauri_weights(rawtree: RawTree, name: str) -> LauriWeights:
+    """The latest weights stored under `name`. Raises if there are none: the version is then left out."""
+    rows = rawtree.query(
+        LATEST_LAURI_WEIGHTS.format(team=rawtree.team, name=name), timeout=10
+    )
+    if not rows:
+        raise LookupError(
+            f"no lauri_weights named {name!r} in scratch: run scripts/train_lauri.py"
+        )
+    return json.loads(rows[0]["weights"])
+
+
+def lauri(
+    weights: LauriWeights,
+    ranked_by_category: Mapping[str, Sequence[str]],
+    history_sales: Mapping[str, int],
+    live_sales: Mapping[str, int],
+    median_log_price: Mapping[str, float],
+    profiles: Mapping[str, Mapping[str, float]] | None = None,
+    bought: Mapping[str, AbstractSet[str]] | None = None,
+) -> Recommend:
+    """Lauri Titan: scores every candidate with weights learned from our own carousels and shows the ten
+    most likely to be bought.
+
+    Candidates are what the Tati versions would consider, together: the products viewed in the session,
+    the category ranking of every category viewed and of the shopper's favourite categories, the
+    subcategory viewed last, the trend and the fallback. A shopper's purchases, from the history (`bought`)
+    or recent (`state.recent_purchases`), are never shown. A new shopper and a returning one have their own
+    weights. On any error the answer is the fallback.
+    """
+    by_segment = {
+        segment: np.array(weights[segment]["weights"], dtype=float)
+        for segment in LAURI_SEGMENTS
+    }
+    trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]
+
+    def trending(state: State) -> list[str]:
+        trend, ranked = trend_cache[0]
+        if trend is not state.trend:
+            trend = state.trend
+            ranked = sorted(
+                (p for p, n in trend.items() if n > 0), key=lambda p: (-trend[p], p)
+            )[:LAURI_PER_LIST]
+            trend_cache[0] = (trend, ranked)
+        return ranked
+
+    def answer(request: Record, state: State) -> list[str]:
+        user = str(request.get("user_id") or "")
+        viewed = [view["product_id"] for view in request.get("recent_views") or []]
+        profile = (profiles or {}).get(user)
+        owned = (bought or {}).get(user, frozenset()) | state.recent_purchases.get(
+            user, frozenset()
+        )
+        categories = [
+            state.category[p] for p in reversed(viewed) if p in state.category
+        ]
+        if profile:
+            favourites = sorted(profile, key=lambda name: (-profile[name], name))
+            categories += favourites[:PROFILE_TOP]
+        pool: dict[str, None] = dict.fromkeys(reversed(viewed))
+        for name in dict.fromkeys(categories):
+            pool.update(
+                dict.fromkeys(ranked_by_category.get(name, ())[:LAURI_PER_CATEGORY])
+            )
+        if viewed and (last := state.subcategory.get(viewed[-1])) is not None:
+            same = (
+                p
+                for p in ranked_by_category.get(state.category.get(viewed[-1], ""), ())
+                if state.subcategory.get(p) == last
+            )
+            pool.update(dict.fromkeys(list(same)[:LAURI_PER_SUBCATEGORY]))
+        pool.update(dict.fromkeys(trending(state)))
+        pool.update(dict.fromkeys(state.fallback[:LAURI_PER_LIST]))
+        candidates = [p for p in pool if p in state.available and p not in owned]
+        signals = LauriSignals(
+            state.category,
+            state.subcategory,
+            state.price,
+            history_sales,
+            live_sales,
+            median_log_price,
+        )
+        segment = "new" if request.get("is_new_user") else "returning"
+        scores = (
+            lauri_features(candidates, viewed, profile, signals) @ by_segment[segment]
+        )
+        best = [candidates[i] for i in np.argsort(-scores, kind="stable")[:ANSWER_SIZE]]
+        for product in state.fallback:
+            if len(best) == ANSWER_SIZE:
+                break
+            if (
+                product in state.available
+                and product not in best
+                and product not in owned
+            ):
+                best.append(product)
+        return best
+
+    def recommend(request: Record, state: State) -> list[str]:
+        try:
+            return answer(request, state)
+        except Exception as e:  # noqa: BLE001  the contract: never raise, answer the fallback
+            print(f"lauri failed, answering the fallback: {e!r}", flush=True)
+            return list(state.fallback[:ANSWER_SIZE])
+
+    return recommend

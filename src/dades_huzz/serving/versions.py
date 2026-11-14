@@ -24,12 +24,20 @@ from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
 from dades_huzz.features import (
+    LiveCategoryRanking,
     category_signals,
     live_category_signals,
+    median_log_prices,
     shopper_profiles,
     shopper_purchases,
 )
-from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.model import (
+    best_sellers,
+    category_best_sellers,
+    lauri,
+    load_lauri_weights,
+    subcategory_first,
+)
 from dades_huzz.serving.loop import Recommend
 
 
@@ -42,6 +50,55 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         **vars(category_signals(rawtree, until=until)),
         keep_viewed=True,
         viewed_first=viewed_first,
+        profiles=shopper_profiles(rawtree, until=until),
+        bought=shopper_purchases(rawtree, until=until),
+    )
+
+
+def _subcategory_first_live(rawtree: RawTree) -> Recommend:
+    """Terminator with the live category ranking (#38), and for a new shopper with views the two best sellers
+    of the subcategory they viewed last on top."""
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(**vars(signals), keep_viewed=True),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
+def _omega(rawtree: RawTree) -> Recommend:
+    """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
+    (#38), and for a new shopper with views the subcategory viewed last first (#46)."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+        ),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
+def _lauri(rawtree: RawTree, name: str) -> Recommend:
+    """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
+    ranking's products with each shopper's profile, and never showing what they bought."""
+    weights = load_lauri_weights(rawtree, name)
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    ranking = LiveCategoryRanking(rawtree).start()
+    catalog = rawtree.catalog()
+    return lauri(
+        weights,
+        ranked_by_category=ranking.signals().ranked_by_category,
+        history_sales=ranking.history_sales,
+        live_sales=ranking.live_sales_now(),
+        median_log_price=median_log_prices(
+            {row["product_id"]: row["category"] for row in catalog},
+            {row["product_id"]: float(row["price_eur"]) for row in catalog},
+        ),
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
     )
@@ -78,10 +135,16 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
+    "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
+    "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
+        **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
+    ),
+    "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
     ),
+    "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
