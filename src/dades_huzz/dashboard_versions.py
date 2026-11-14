@@ -90,6 +90,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#3a7d44",
         "Titan, with cold requests answered by #60's rule: the 15-min leading category, then device shares.",
     ),
+    "lauri-titan-plus-hot": VersionStyle(
+        "#5c2a9d",
+        "Titan+, and while a subcategory trends (#64) its two live best sellers take slots 2 and 3.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 

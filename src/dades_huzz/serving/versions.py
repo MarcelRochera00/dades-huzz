@@ -30,6 +30,7 @@ from dades_huzz.model import (
     cart_first,
     category_best_sellers,
     cold_first,
+    hot_first,
     lauri,
     load_lauri_weights,
     subcategory_first,
@@ -194,6 +195,13 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
             bought=shopper_purchases(
                 rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
             ),
+        ),
+    ),
+    "lauri-titan-plus-hot": lambda rawtree: hot_first(
+        _lauri(rawtree, "lauri-titan-plus", history_carts=True),
+        live_category_signals(rawtree).ranked_by_category,
+        bought=shopper_purchases(
+            rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
         ),
     ),
 }
