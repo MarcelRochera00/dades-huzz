@@ -8,13 +8,14 @@ throughout. The three-minute core is also the script for the Saturday Practice b
 **Question for the jury.** Would you test personalized recommendations in your store?
 
 Start the dashboard from the [README launch command](../README.md#lane-d-dashboard) on the
-presentation laptop. Prepare two tabs before you start.
+presentation laptop. Prepare two tabs for rehearsal and recording.
 
 - **Jury → Round → Practice → Recommendation version → `tati-terminator-category-viewed`.**
   Start at the top and keep **Purchases per 100 displays** selected under **Sales activity over
-  time**. For the live presentation, use **Final** and the team's selected version once that
-  version has confirmed displays. Keep the Practice tab ready for rehearsal or pending Final
-  feedback. The best-seller comparison stays the same recorded Practice experiment in either round.
+  time**. For the live presentation, prepare a third tab with **Jury → Final** and the team's
+  selected version once it has confirmed displays. Keep the Practice tab ready if Final
+  feedback is pending. The best-seller comparison stays the same recorded Practice experiment
+  in either round.
 - **Team → Compare versions from → 14 Nov 15:56:31 CET → Purchase results.** Check that the
   comparison ends at **16:06:06 CET** and the table shows Destroyer and Terminator. Keep
   **Backup use** ready in the same tab.
@@ -38,7 +39,7 @@ Destroyer requests and **1,757** best-seller requests. [Experiment 17](experimen
 > “Here are the purchases the simulator actually recorded when shoppers saw Terminator's
 > recommendations during Practice. We recorded [purchases] purchases and [sales] in simulated
 > sales from [displays] confirmed displays. That's [rate] purchases per 100 displays. Each bar
-> covers ten minutes, so we can see when the purchase rate changes as traffic varies.”
+> shows the purchase rate for ten minutes, even when the number of shoppers varies.”
 
 Read **Simulated purchases**, **Simulated sales**, **Purchases per 100 displays**, and the display
 count from the screen. Point to **Feedback through** and mention that the latest window may still
@@ -64,11 +65,11 @@ a fixed replay and the pipeline explanation.
 
 **2:05–2:40 · Team, Purchase results → Backup use**
 
-> “How did we decide what to give more traffic? Here's a different practice test. Destroyer
-> recorded nine purchases and Terminator eight. The uncertainty range crosses zero, so we'd keep
-> testing before calling a winner. On reliability, the organizers' fallback covered 22 requests
-> assigned to Destroyer and nine assigned to Terminator. That gives us a concrete issue to
-> investigate before giving either version more traffic.”
+> “What did observed purchases tell us in a different practice test? Requests assigned to
+> Destroyer produced nine purchases. Those assigned to Terminator produced eight. Those totals
+> include backup displays. The range crosses zero, so these purchases leave the lead uncertain.
+> The organizers' fallback covered 22 requests assigned to Destroyer and nine assigned to
+> Terminator, giving us a reliability question to investigate.”
 
 Point to the difference and its 95% interval (Terminator versus Destroyer, **−1.23 to +0.83
 purchases per 100 assigned requests with feedback**). Then click **Backup use** and point to
