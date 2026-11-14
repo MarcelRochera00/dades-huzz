@@ -33,13 +33,14 @@ FORBIDDEN_MODULE_NAMES = {"utils.py", "helpers.py", "misc.py", "common.py"}
 
 def tracked_files() -> list[str]:
     out = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        # -z: without it git quotes non-ASCII paths ("docs/...") and the root check misreads them
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=True,
     )
-    return [line for line in out.stdout.splitlines() if line]
+    return [path for path in out.stdout.split("\0") if path]
 
 
 def test_nothing_unexpected_at_repo_root():
