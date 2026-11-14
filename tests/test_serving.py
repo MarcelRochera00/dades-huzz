@@ -1,4 +1,5 @@
 import time
+from datetime import UTC, datetime
 
 from dades_huzz.data import State
 from dades_huzz.serving import answer, decide_role, repair, validate
@@ -265,6 +266,9 @@ class ChangingRawTree:
     def best_sellers(self):
         return []
 
+    def recent_events(self):
+        return []
+
 
 def test_live_state_picks_up_a_replaced_catalogue_without_a_restart():
     rawtree = ChangingRawTree([f"p_old_{i}" for i in range(10)])
@@ -295,6 +299,45 @@ def test_live_state_forgets_updates_that_were_removed_from_rawtree():
     while "p_0" not in live.state.available and time.monotonic() < deadline:
         time.sleep(0.05)
     assert "p_0" in live.state.available
+
+
+class SlowEventsRawTree(ChangingRawTree):
+    """Events take a while to read, and the trend is counted from them."""
+
+    def __init__(self, products: list[str], read_s: float) -> None:
+        super().__init__(products)
+        self.read_s = read_s
+        self.reads = 0
+
+    def recent_events(self):
+        self.reads += 1
+        time.sleep(self.read_s)
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        return [
+            {"ts": now, "event_type": "purchase", "product_id": "p_0", "user_id": "u"}
+        ]
+
+
+def test_the_trend_is_attached_to_the_state_and_read_in_the_background():
+    rawtree = SlowEventsRawTree([f"p_{i}" for i in range(10)], read_s=0)
+    live = LiveState(rawtree, signals_s=0.2)
+    assert live.state.trend == {"p_0": 4}
+    assert live.state.recent_purchases == {"u": frozenset({"p_0"})}
+    reads = rawtree.reads
+    time.sleep(1)
+    assert rawtree.reads > reads  # read again in the background
+
+
+def test_a_slow_events_read_never_holds_up_the_stock_refresh():
+    rawtree = SlowEventsRawTree([f"p_{i}" for i in range(10)], read_s=0)
+    live = LiveState(rawtree, signals_s=0.1)
+    rawtree.read_s = 2  # from now on every events read takes 2 s
+    time.sleep(0.3)
+    oldest_ms = 0
+    for _ in range(10):
+        time.sleep(0.15)
+        oldest_ms = max(oldest_ms, int(time.time() * 1000) - live.refreshed_ms)
+    assert oldest_ms < 1000
 
 
 class HeartbeatRawTree:
