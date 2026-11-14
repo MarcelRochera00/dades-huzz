@@ -118,6 +118,120 @@ def test_category_best_sellers_can_put_the_latest_viewed_products_first():
     assert len(set(answer)) == 10
 
 
+def _cold_state(trend, extra=(), recent_purchases=None, new_products=()):
+    state = _state(extra={*trend, *extra})
+    return State(
+        **{
+            **vars(state),
+            "new_products": frozenset(new_products),
+            "trend": trend,
+            "recent_purchases": recent_purchases or {},
+        }
+    )
+
+
+def _cold_recommend(category_of):
+    from dades_huzz.model import category_best_sellers
+
+    return category_best_sellers(
+        category_of=category_of,
+        ranked_by_category={},
+        keep_viewed=True,
+        viewed_first=3,
+        cold_start=True,
+    )
+
+
+def test_cold_start_without_views_shows_the_global_trend_minus_recent_purchases():
+    recommend = _cold_recommend({})
+    state = _cold_state(
+        trend={"hot": 9, "bought": 8, "warm": 4, "mild": 1},
+        recent_purchases={"u1": frozenset({"bought"})},
+    )
+    answer = recommend(
+        {"user_id": "u1", "is_new_user": True, "recent_views": []}, state
+    )
+    assert answer[:4] == ["hot", "warm", "mild", "p_00"]
+    assert len(set(answer)) == 10
+
+
+def test_cold_start_splits_the_list_by_the_share_of_views_per_category():
+    # 3 of 5 views are toys and 2 electronics: 6 toys slots, then 4 electronics slots. Each block opens
+    # with its last viewed product, then that category's trend; a short block is filled at the end
+    recommend = _cold_recommend(
+        {"t_v1": "toys", "t_v2": "toys", "e_v1": "electronics", "e_v2": "electronics"}
+    )
+    trend = {"t_1": 9, "e_1": 8, "t_2": 7, "e_2": 6, "e_3": 5, "t_3": 4, "t_4": 3}
+    category = {p: "toys" if p.startswith("t") else "electronics" for p in trend}
+    state = _cold_state(trend, extra={"t_v1", "t_v2", "e_v1", "e_v2"})
+    state = State(**{**vars(state), "category": category})
+    views = ["t_v1", "e_v1", "t_v1", "e_v2", "t_v2"]
+    request = {"is_new_user": True, "recent_views": [{"product_id": p} for p in views]}
+    assert recommend(request, state) == [
+        *["t_v2", "t_1", "t_2", "t_3", "t_4"],  # toys block: 5 of its 6 slots found
+        *["e_v2", "e_1", "e_2", "e_3"],
+        "p_00",
+    ]
+
+
+def test_cold_start_breaks_ties_by_the_most_recent_view_and_shows_at_most_three_viewed():
+    # one view in each of four categories: 2.5 slots each, the two leftover slots go to the categories
+    # viewed last; only the three most recently viewed categories open with their viewed product
+    recommend = _cold_recommend({"a_v": "a", "b_v": "b", "c_v": "c", "d_v": "d"})
+    trend = {f"{c}_{i}": 10 - i for c in "abcd" for i in range(3)}
+    state = _cold_state(trend, extra={"a_v", "b_v", "c_v", "d_v"})
+    state = State(**{**vars(state), "category": {p: p[0] for p in trend}})
+    views = ["a_v", "b_v", "c_v", "d_v"]
+    request = {"is_new_user": True, "recent_views": [{"product_id": p} for p in views]}
+    assert recommend(request, state) == [
+        *["d_v", "d_0", "d_1"],
+        *["c_v", "c_0", "c_1"],
+        *["b_v", "b_0"],
+        *["a_0", "a_1"],
+    ]
+
+
+def test_a_returning_shopper_who_views_a_new_product_is_cold_too():
+    recommend = _cold_recommend({})
+    state = _cold_state({"n_1": 5, "hot": 9}, extra={"n_new"}, new_products={"n_new"})
+    state = State(**{**vars(state), "category": {"n_new": "toys", "n_1": "toys"}})
+    request = {"is_new_user": False, "recent_views": [{"product_id": "n_new"}]}
+    assert recommend(request, state)[:3] == ["n_new", "n_1", "hot"]
+
+
+def test_a_cold_answer_leaves_out_what_the_shopper_bought_in_the_history():
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={},
+        keep_viewed=True,
+        viewed_first=3,
+        bought={"u1": {"hot"}},
+        cold_start=True,
+    )
+    state = _cold_state({"hot": 9, "warm": 4})
+    answer = recommend(
+        {"user_id": "u1", "is_new_user": True, "recent_views": []}, state
+    )
+    assert answer[:2] == ["warm", "p_00"]
+
+
+def test_cold_start_leaves_returning_shoppers_to_the_usual_ranking():
+    from dades_huzz.model import category_best_sellers
+
+    kwargs = {
+        "category_of": {"v_last": "electronics"},
+        "ranked_by_category": {"electronics": ["e_1", "e_2"]},
+        "keep_viewed": True,
+        "viewed_first": 3,
+    }
+    state = _cold_state({"hot": 9}, extra={"e_1", "e_2", "v_last"})
+    request = {"is_new_user": False, "recent_views": [{"product_id": "v_last"}]}
+    with_rule = category_best_sellers(**kwargs, cold_start=True)(request, state)
+    assert with_rule == category_best_sellers(**kwargs)(request, state)
+
+
 def test_a_returning_shopper_without_views_gets_their_favourite_categories():
     from dades_huzz.model import category_best_sellers
 

@@ -67,6 +67,14 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         keep_viewed=True,
         viewed_first=3,
     ),
+    "tati-ultimatum-cold": lambda rawtree: category_best_sellers(
+        **vars(
+            category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
+        ),
+        keep_viewed=True,
+        viewed_first=3,
+        cold_start=True,
+    ),
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
