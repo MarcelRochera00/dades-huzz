@@ -10,6 +10,8 @@ import time
 import traceback
 from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,6 +25,7 @@ from dades_huzz.data import (
     current_state,
     recently_changed,
 )
+from dades_huzz.features import purchases_in_window, trend_scores
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.watchdog import mark_alive
 
@@ -38,6 +41,8 @@ MAX_AGE_MS = 2400
 STATE_REFRESH_S = 0.25
 """Stock can change at any moment: start a read of new catalogue updates this often (each read is small,
 about 0.2 s), so a change reaches the loop well under a second after it lands in RawTree."""
+TREND_REFRESH_S = 30
+"""How often the 15-minute trend is re-read. The window moves in minutes, so this is not on the stock clock."""
 LATE_UPDATE_MS = 120_000
 """Each read of catalogue updates goes back this far, so an update that lands in RawTree up to 2 minutes
 after a newer one is still read (about 30 rows per read)."""
@@ -104,6 +109,7 @@ class LiveState:
         rawtree: RawTree,
         on_retry: Callable[[], None] = lambda: None,
         reload_s: float = RELOAD_S,
+        signals_s: float = TREND_REFRESH_S,
     ) -> None:
         self.rawtree = rawtree
         self.catalog = until_ok(rawtree.catalog, "catalogue", on_retry)
@@ -115,11 +121,32 @@ class LiveState:
             )
         )
         self._reloaded: tuple[int, list[Record], list[str], list[Record]] | None = None
+        self.signals: tuple[dict[str, int], dict[str, frozenset[str]]] = ({}, {})
+        self._read_signals()
         self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
         threading.Thread(
             target=self._reload_forever, args=(reload_s,), daemon=True
         ).start()
+        threading.Thread(
+            target=self._signals_forever, args=(signals_s,), daemon=True
+        ).start()
+
+    def _read_signals(self) -> None:
+        """Read the trend window and compute it once; every rebuild attaches the result as it is."""
+        try:
+            events = self.rawtree.recent_events()
+            now = datetime.now(UTC)
+            self.signals = (trend_scores(events, now), purchases_in_window(events, now))
+        except Exception as e:  # noqa: BLE001  a failed trend read keeps the previous window
+            print(f"trend read failed: {e}", flush=True)
+
+    def _signals_forever(self, every_s: float) -> None:
+        """Own thread: reading and counting about 60,000 events takes about a second, which must not
+        hold up the stock refresh."""
+        while True:
+            time.sleep(every_s)
+            self._read_signals()
 
     def _reload_forever(self, every_s: float) -> None:
         """Read everything again; the refresh thread swaps it in, so only that thread changes the state."""
@@ -158,6 +185,8 @@ class LiveState:
 
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
+        trend, recent_purchases = self.signals
+        state = replace(state, trend=trend, recent_purchases=recent_purchases)
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
         )
@@ -254,7 +283,14 @@ def serve(
     split = load_versions(lambda load, what: until_ok(load, what, starting))
     print(f"versions: {split.shares} (champion: {split.champion})", flush=True)
     cursor = RequestCursor(MAX_AGE_MS)
-    turn = Handover(rawtree, enabled=handover)
+    turn = Handover(
+        rawtree,
+        enabled=handover,
+        details=lambda: {
+            "versions": split.describe(),
+            "out": ",".join(sorted(split.taken_out())),
+        },
+    )
     was_active = not handover
     log_path.parent.mkdir(parents=True, exist_ok=True)
     answered = errors = 0
