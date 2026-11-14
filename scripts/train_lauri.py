@@ -45,6 +45,7 @@ TITAN_FEATURES = tuple(
 )
 COLOSSUS_FEATURES = TITAN_FEATURES + LAURI_DAY_FEATURES
 TITAN_PLUS_FEATURES = TITAN_FEATURES + LAURI_CART_FEATURES
+OMNI_FEATURES = COLOSSUS_FEATURES + LAURI_CART_FEATURES
 MIN_CART_PURCHASES = 40
 
 
@@ -69,10 +70,17 @@ def main() -> None:
         help="Titan+: Titan's features plus history_carted (no day)",
     )
     parser.add_argument(
+        "--omni",
+        action="store_true",
+        help="Lauri Omni: Colossus' features (the day) plus history_carted",
+    )
+    parser.add_argument(
         "--save", action="store_true", help="refit on every row and store the weights"
     )
     args = parser.parse_args()
-    if args.history_carts:
+    if args.omni:
+        features = OMNI_FEATURES
+    elif args.history_carts:
         features = TITAN_PLUS_FEATURES
     else:
         features = TITAN_FEATURES if args.no_day else COLOSSUS_FEATURES
@@ -100,7 +108,13 @@ def main() -> None:
     titan = fit_lauri(rows, train, target, args.l2, TITAN_FEATURES)
     titan_ll = report("titan refitted", *lauri_scores(titan, rows), rows, test)
     fitted = fit_lauri(rows, train, target, args.l2, features)
-    if args.history_carts:
+    if args.omni:
+        colossus = fit_lauri(rows, train, target, args.l2, COLOSSUS_FEATURES)
+        colossus_ll = report(
+            "colossus refitted", *lauri_scores(colossus, rows), rows, test
+        )
+        name = "omni"
+    elif args.history_carts:
         name = "history carts"
     else:
         name = "titan features" if args.no_day else "with the day"
@@ -113,7 +127,12 @@ def main() -> None:
                 f"{name} {weight:+.2f}" for name, weight in pairs if name in features
             )
         )
-    if args.history_carts:
+    if args.omni:
+        verdict = "PASSES" if fitted_ll >= colossus_ll else "FAILS"
+        print(
+            f"rule: held-out log-likelihood {fitted_ll:.1f} against the refitted Colossus' {colossus_ll:.1f}: {verdict}"
+        )
+    elif args.history_carts:
         column = LAURI_FEATURES.index("history_carted")
         carted = rows.features[:, column] > 0
         support = int(rows.purchased[carted].sum())

@@ -303,3 +303,10 @@ def test_hot_subcategories_reach_the_state_from_the_backfilled_window():
         assert time.monotonic() < deadline, live.state.hot_subcategories
         time.sleep(0.02)
     assert set(live.state.hot_subcategories) == {"Kettles"}
+
+
+def test_lauri_omni_is_a_live_version():
+    """Marcel's combined model (#7) can be put in a split by name."""
+    from dades_huzz.serving.versions import VERSIONS
+
+    assert "lauri-omni" in VERSIONS
