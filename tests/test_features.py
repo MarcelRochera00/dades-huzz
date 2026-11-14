@@ -266,3 +266,18 @@ def test_lauri_features_describe_a_candidate_for_this_shopper():
     assert by_name[2]["log_live_sales"] == math.log(4)
     assert math.isclose(by_name[0]["relative_price"], math.log(2))
     assert not rows[3].any()
+
+
+class CartsRawTree:
+    def query(self, sql, timeout=10):
+        # carts come from the history; purchases from the history and live are left out
+        assert "add_to_cart" in sql and "shop.events" in sql and "NOT IN" in sql
+        return [{"user_id": "u_1", "products": ["p_new", "p_old"]}]
+
+
+def test_shopper_carts_are_each_shoppers_unbought_carts_latest_first():
+    from dades_huzz.features import shopper_carts
+
+    assert shopper_carts(CartsRawTree(), until="2026-11-14 12:00:00") == {
+        "u_1": ("p_new", "p_old")
+    }

@@ -66,6 +66,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#6b4fa3",
         "Omega plus the categories each shopper viewed today, so new shoppers get a profile too.",
     ),
+    "tati-cart-profile": VersionStyle(
+        "#2a9d8f",
+        "Apocalypse with up to 3 products the shopper carted in the history and never bought on top.",
+    ),
     "lauri-titan-feedback": VersionStyle(
         "#e07b00",
         "Learned ranking: weights trained on our own carousels score each product for the shopper.",

@@ -620,3 +620,70 @@ def test_todays_views_add_to_the_history_profile():
         "b_1",
         "t_1",
     ]
+
+
+def _cart_state(**changes):
+    base = {
+        "available": frozenset(
+            [f"t_{i}" for i in range(12)] + ["c_toy", "c_book", "c_old", "x_0"]
+        ),
+        "price": {},
+        "new_products": frozenset(),
+        "fallback": ("x_0",),
+        "category": {
+            "c_toy": "Toys",
+            "v_0": "Toys",
+            "c_book": "Books",
+            "c_old": "Books",
+        },
+    }
+    return State(**{**base, **changes})
+
+
+def test_a_returning_shopper_gets_their_carted_products_on_top():
+    from dades_huzz.model import cart_first
+
+    recommend = cart_first(_terminator_like, {"u_1": ["c_book", "c_old"]})
+    answer = recommend({"user_id": "u_1", "is_new_user": False}, _cart_state())
+    assert answer == ["c_book", "c_old", *[f"t_{i}" for i in range(8)]]
+
+
+def test_carted_products_of_the_category_viewed_last_go_first_and_at_most_three():
+    from dades_huzz.model import cart_first
+
+    carts = {"u_1": ["c_book", "c_old", "t_11", "c_toy"]}
+    recommend = cart_first(_terminator_like, carts)
+    request = {
+        "user_id": "u_1",
+        "is_new_user": False,
+        "recent_views": [{"product_id": "v_0"}],
+    }
+    assert recommend(request, _cart_state())[:4] == ["c_toy", "c_book", "c_old", "t_0"]
+
+
+def test_carted_picks_skip_unavailable_and_just_bought_and_the_answer_drops_just_bought():
+    from dades_huzz.model import cart_first
+
+    state = _cart_state(
+        available=_cart_state().available - {"c_old"},
+        recent_purchases={"u_1": frozenset({"c_book", "t_0"})},
+    )
+    recommend = cart_first(_terminator_like, {"u_1": ["c_book", "c_old", "c_toy"]})
+    answer = recommend({"user_id": "u_1", "is_new_user": False}, state)
+    assert answer == ["c_toy", *[f"t_{i}" for i in range(1, 10)]]
+    # a short base answer is padded from the fallback
+    short = cart_first(lambda r, s: ["t_0", "t_1"], {"u_1": ["c_toy"]})
+    assert short({"user_id": "u_1", "is_new_user": False}, state) == [
+        "c_toy",
+        "t_1",
+        "x_0",
+    ]
+
+
+def test_new_shoppers_and_shoppers_without_carts_keep_the_base_answer():
+    from dades_huzz.model import cart_first
+
+    recommend = cart_first(_terminator_like, {"u_1": ["c_book"]})
+    base = _terminator_like({}, _cart_state())
+    assert recommend({"user_id": "u_1", "is_new_user": True}, _cart_state()) == base
+    assert recommend({"user_id": "u_2", "is_new_user": False}, _cart_state()) == base
