@@ -460,3 +460,34 @@ def test_fit_lauri_keeps_the_slot_out_of_the_feature_weights():
         assert fitted[segment]["slot"][-1] < -2
     shown, served = lauri_scores(fitted, rows)
     assert shown.shape == served.shape == (n * 10,)
+
+
+def test_lauri_weights_round_trip_through_the_scratch_table():
+    from dades_huzz.model import load_lauri_weights, save_lauri_weights
+
+    class FakeRawTree:
+        team = "team_xx"
+
+        def __init__(self):
+            self.rows = []
+
+        def insert(self, table, rows, timeout=2):
+            assert table == "scratch"
+            self.rows += rows
+
+        def query(self, sql, timeout=10):
+            assert "kind::String = 'lauri_weights'" in sql and "'lauri-test'" in sql
+            return [{"weights": self.rows[-1]["weights"]}] if self.rows else []
+
+    fake = FakeRawTree()
+    try:
+        load_lauri_weights(fake, "lauri-test")
+        raise AssertionError("expected LookupError")
+    except LookupError:
+        pass
+    weights = {"new": {"weights": [1.0, 2.0]}, "returning": {"weights": [3.0, 4.0]}}
+    save_lauri_weights(fake, "lauri-test", weights, ts_ms=1)
+    assert (
+        fake.rows[0]["kind"] == "lauri_weights" and fake.rows[0]["name"] == "lauri-test"
+    )
+    assert load_lauri_weights(fake, "lauri-test") == weights

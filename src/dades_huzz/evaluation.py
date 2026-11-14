@@ -414,7 +414,9 @@ def carousel_report(
         "requests": len(np.unique(request[keep])),
         "purchases": len(new),
         "log_likelihood": log_likelihood(shown_logit[keep], purchased[keep]),
-        "auc_top_slots": float(np.nanmean(aucs)),
+        "auc_top_slots": float(np.mean(valid))
+        if (valid := [a for a in aucs if a == a])
+        else float("nan"),
         "top3": float((new <= 3).mean()),
         "top3_shown": float((shown <= 3).mean()),
         "mrr": float((1 / new).mean()),
