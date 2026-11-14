@@ -1,6 +1,11 @@
-"""Signals precomputed from the history (lane B), built in RawTree SQL and loaded once at start."""
+"""Signals for ranking (lane B), built in RawTree SQL: from the history, loaded once at start, and the live
+category ranking, rebuilt every minute from the purchases since the switch."""
 
+import threading
+import time
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree
 
@@ -39,8 +44,8 @@ ORDER BY n DESC, product_id DESC"""
 class CategorySignals:
     """What Tati Destroyer needs: each product's category and each category's best sellers."""
 
-    category_of: dict[str, str]
-    ranked_by_category: dict[str, list[str]]
+    category_of: Mapping[str, str]
+    ranked_by_category: Mapping[str, list[str]]
 
 
 def category_signals(
@@ -65,3 +70,225 @@ def best_sellers_until(rawtree: RawTree, until: str) -> list[str]:
         row["product_id"]
         for row in rawtree.query(OVERALL_RANKING.format(until=until), timeout=60)
     ]
+
+
+PRACTICE_ROUND_START = "2026-11-14 09:00:00"
+"""When the live stream opened (UTC): live sales count from here until the switch."""
+FINAL_ROUND_START = "2026-11-15 09:00:00"
+"""The switch (GLOSSARY.md), Sunday 10:00 CET in UTC: from here only the new data counts."""
+PRIOR_WEIGHTS = (0, 250, 500, 1000, 2000, 5000, 20000)
+"""How many live purchases the history is worth, the candidates the category ranking tunes over."""
+START_PRIOR_WEIGHT = 500
+"""The weight used until there is enough live data to tune it (docs/experiments.md)."""
+TUNE_FROM_MS = 4 * 60_000
+TUNE_WINDOW_MS = 10 * 60_000
+"""The weight is the one that best predicted the last 10 minutes (half the elapsed time, at the start)."""
+TOP = 10
+"""What a tuning window scores: the share of each category's purchases that landed in its top 10."""
+REFRESH_S = 60
+
+LIVE_PURCHASES = """
+SELECT product_id::String AS product_id,
+       countIf(ts::DateTime64(3) < fromUnixTimestamp64Milli(toInt64({cut_ms}))) AS before,
+       countIf(ts::DateTime64(3) >= fromUnixTimestamp64Milli(toInt64({cut_ms}))) AS recent
+FROM shop.events
+WHERE event_type = 'purchase'
+  AND ts::DateTime64(3) >= fromUnixTimestamp64Milli(toInt64({since_ms}))
+  AND ts::DateTime64(3) < fromUnixTimestamp64Milli(toInt64({now_ms}))
+GROUP BY product_id"""
+"""Each product's live purchases since `since_ms`, split at `cut_ms` (before the tuning window, in it)."""
+
+HISTORY_PURCHASES = """
+SELECT product_id::String AS product_id, count() AS n
+FROM shop.history_events
+WHERE event_type = 'purchase'
+GROUP BY product_id"""
+
+
+def utc_ms(text: str) -> int:
+    """'YYYY-MM-DD HH:MM:SS' in UTC -> Unix milliseconds."""
+    moment = datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    return int(moment.timestamp() * 1000)
+
+
+def live_sales_since_ms(now_ms: int) -> int:
+    """Where live sales start counting: the switch once it has come, before it the practice round."""
+    final = utc_ms(FINAL_ROUND_START)
+    return final if now_ms >= final else utc_ms(PRACTICE_ROUND_START)
+
+
+def category_ranking(
+    live: Mapping[str, int],
+    history_share: Mapping[str, float],
+    category_of: Mapping[str, str],
+    prior_weight: float,
+    per_category: int = 200,
+) -> dict[str, list[str]]:
+    """The category ranking (GLOSSARY.md): each category's products by live purchases plus
+    `prior_weight` times their share of the history's purchases, best first. A new product enters as soon
+    as it sells; one without a known category or without any score is left out."""
+    scored: dict[str, list[tuple[float, str]]] = {}
+    for product in live.keys() | history_share.keys():
+        category = category_of.get(product)
+        score = live.get(product, 0) + prior_weight * history_share.get(product, 0.0)
+        if category is not None and score > 0:
+            scored.setdefault(category, []).append((score, product))
+    return {
+        category: [product for _, product in sorted(products, reverse=True)][
+            :per_category
+        ]
+        for category, products in scored.items()
+    }
+
+
+def captured(
+    ranked: Mapping[str, list[str]],
+    purchases: Mapping[str, int],
+    category_of: Mapping[str, str],
+    top: int = TOP,
+) -> float:
+    """The share of each category's `purchases` that landed in its top `top`, averaged over categories."""
+    tops = {category: set(products[:top]) for category, products in ranked.items()}
+    total: dict[str, int] = {}
+    hit: dict[str, int] = {}
+    for product, n in purchases.items():
+        category = category_of.get(product)
+        if category is None:
+            continue
+        total[category] = total.get(category, 0) + n
+        if product in tops.get(category, ()):
+            hit[category] = hit.get(category, 0) + n
+    if not total:
+        return 0.0
+    return sum(hit.get(c, 0) / n for c, n in total.items()) / len(total)
+
+
+def pick_prior_weight(
+    before: Mapping[str, int],
+    recent: Mapping[str, int],
+    history_share: Mapping[str, float],
+    category_of: Mapping[str, str],
+    weights: tuple[float, ...] = PRIOR_WEIGHTS,
+) -> tuple[float, dict[float, float]]:
+    """A backtest: rank with the purchases `before` the tuning window under each weight, and keep the one
+    whose top 10 caught most of the `recent` purchases. Ties go to the smaller weight."""
+    scores = {
+        weight: captured(
+            category_ranking(before, history_share, category_of, weight, TOP),
+            recent,
+            category_of,
+        )
+        for weight in weights
+    }
+    return max(weights, key=lambda weight: scores[weight]), scores
+
+
+class _LiveMapping(Mapping):
+    """A read-only view of whatever mapping `read` returns now, so a version keeps one object for its life."""
+
+    def __init__(self, read):
+        self._read = read
+
+    def __getitem__(self, key):
+        return self._read()[key]
+
+    def __iter__(self) -> Iterator:
+        return iter(self._read())
+
+    def __len__(self) -> int:
+        return len(self._read())
+
+
+class LiveCategoryRanking:
+    """The category ranking, rebuilt from RawTree: the categories of every product (new ones included), the
+    live purchases since the switch, and the history prior with its weight tuned on the last minutes."""
+
+    def __init__(
+        self,
+        rawtree: RawTree,
+        prior_weight: float | None = None,
+        since_ms: int | None = None,
+        now_ms=None,
+    ) -> None:
+        self.rawtree = rawtree
+        self.fixed_weight = prior_weight
+        """A weight to use always, instead of tuning one (None: tune)."""
+        self.since_ms = since_ms
+        self.now_ms = now_ms or rawtree.server_now_ms
+        history = {
+            row["product_id"]: int(row["n"])
+            for row in rawtree.query(HISTORY_PURCHASES, timeout=60)
+        }
+        total = sum(history.values()) or 1
+        self.history_share = {product: n / total for product, n in history.items()}
+        self.prior_weight: float = START_PRIOR_WEIGHT
+        self._snapshot: tuple[dict[str, str], dict[str, list[str]]] = ({}, {})
+        self.refresh()
+
+    def refresh(self) -> None:
+        now = self.now_ms()
+        since = self.since_ms if self.since_ms is not None else live_sales_since_ms(now)
+        elapsed = max(now - since, 0)
+        cut = now - min(TUNE_WINDOW_MS, elapsed // 2)
+        category_of = {
+            row["product_id"]: row["category"]
+            for row in self.rawtree.query(CATALOG_CATEGORY, timeout=30)
+        }
+        rows = self.rawtree.query(
+            LIVE_PURCHASES.format(since_ms=since, cut_ms=cut, now_ms=now), timeout=30
+        )
+        before = {row["product_id"]: int(row["before"]) for row in rows}
+        recent = {row["product_id"]: int(row["recent"]) for row in rows}
+        live = {product: before[product] + recent[product] for product in before}
+        scores: dict[float, float] = {}
+        if self.fixed_weight is not None:
+            weight = self.fixed_weight
+        elif elapsed < TUNE_FROM_MS or not any(recent.values()):
+            weight = START_PRIOR_WEIGHT
+        else:
+            weight, scores = pick_prior_weight(
+                before, recent, self.history_share, category_of
+            )
+        self.prior_weight = weight
+        self._snapshot = (
+            category_of,
+            category_ranking(live, self.history_share, category_of, weight),
+        )
+        tuned = " ".join(f"{w:g}={s:.3f}" for w, s in scores.items()) or "not tuned"
+        print(
+            f"category ranking refreshed: prior weight {weight:g} ({tuned}), "
+            f"{sum(live.values())} live purchases in {elapsed // 60_000} min",
+            flush=True,
+        )
+
+    def signals(self) -> CategorySignals:
+        """What `category_best_sellers` takes, like `category_signals`, but always the latest refresh."""
+        return CategorySignals(
+            category_of=_LiveMapping(lambda: self._snapshot[0]),
+            ranked_by_category=_LiveMapping(lambda: self._snapshot[1]),
+        )
+
+    def start(self, every_s: float = REFRESH_S) -> "LiveCategoryRanking":
+        """Refresh every `every_s` in a background thread, never on the answering path."""
+
+        def run() -> None:
+            while True:
+                time.sleep(every_s)
+                try:
+                    self.refresh()
+                except Exception as e:  # noqa: BLE001  keep the last ranking, try again next time
+                    print(
+                        f"category ranking refresh failed, keeping the last one: {str(e)[:160]}",
+                        flush=True,
+                    )
+
+        threading.Thread(target=run, daemon=True).start()
+        return self
+
+
+def live_category_signals(
+    rawtree: RawTree, prior_weight: float | None = None
+) -> CategorySignals:
+    """The live category ranking for any version, passed like `category_signals`:
+    `category_best_sellers(**vars(live_category_signals(rawtree)), ...)`."""
+    return LiveCategoryRanking(rawtree, prior_weight=prior_weight).start().signals()

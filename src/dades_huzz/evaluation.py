@@ -1,13 +1,89 @@
 """Offline evaluation of a `recommend(request, state)` on the history (lane B, docs/experiments.md)."""
 
 import math
-from collections.abc import Callable, Collection, Mapping, Sequence
+import random
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from dades_huzz.data import RawTree, Record, State
+from dades_huzz.features import (
+    START_PRIOR_WEIGHT,
+    TOP,
+    TUNE_FROM_MS,
+    TUNE_WINDOW_MS,
+    captured,
+    category_ranking,
+    pick_prior_weight,
+)
+
+TREND_CHANGES = (0.0, 0.3, 0.6, 1.0)
+"""Shares of each category's products whose history popularity is shuffled to simulate the switch."""
+
+
+def simulate_switch(
+    purchases: Iterable[tuple[str, int]],
+    history: Mapping[str, int],
+    category_of: Mapping[str, str],
+    policies: Mapping[str, float | None],
+    trend_changes: Sequence[float] = TREND_CHANGES,
+    seeds: int = 3,
+    minutes: int = 120,
+    step: int = 2,
+    horizon: int = 30,
+) -> dict[str, dict[float, float]]:
+    """Replay a final round on a stretch of live purchases, `(product, minute since its start)`, and score
+    each way of weighting the history: a fixed prior weight, or None to tune it as the live version does.
+
+    New trends are simulated by shuffling the history's purchase counts among a share of each category's
+    products (1.0: the history says nothing, as with an all-new catalogue). Score: `captured` of the next
+    `horizon` minutes' purchases by each category's top 10, averaged over a decision every `step` minutes.
+    """
+    products = sorted(category_of)
+    index = {product: i for i, product in enumerate(products)}
+    counts = np.zeros((len(products), minutes + horizon))
+    for product, minute in purchases:
+        if product in index and 0 <= minute < counts.shape[1]:
+            counts[index[product], minute] += 1
+    cumulative = np.concatenate([np.zeros((len(products), 1)), counts.cumsum(1)], 1)
+
+    def sales(start: int, end: int) -> dict[str, int]:
+        window = cumulative[:, end] - cumulative[:, start]
+        return {products[i]: int(window[i]) for i in np.flatnonzero(window)}
+
+    members: dict[str, list[str]] = {}
+    for product in products:
+        members.setdefault(category_of[product], []).append(product)
+    results: dict[str, dict[float, float]] = {name: {} for name in policies}
+    for change in trend_changes:
+        scores: dict[str, list[float]] = {name: [] for name in policies}
+        for seed in range(seeds):
+            rng = random.Random(seed)
+            shuffled = dict(history)
+            for group in members.values():
+                picked = [p for p in group if rng.random() < change]
+                values = [history.get(p, 0) for p in picked]
+                rng.shuffle(values)
+                shuffled.update(zip(picked, values, strict=True))
+            total = sum(shuffled.values()) or 1
+            share = {p: n / total for p, n in shuffled.items() if n}
+            for t in range(step, minutes, step):
+                live, target = sales(0, t), sales(t, t + horizon)
+                for name, weight in policies.items():
+                    if weight is None:
+                        weight = START_PRIOR_WEIGHT
+                        if t * 60_000 >= TUNE_FROM_MS:
+                            cut = t - min(TUNE_WINDOW_MS // 60_000, t // 2)
+                            weight, _ = pick_prior_weight(
+                                sales(0, cut), sales(cut, t), share, category_of
+                            )
+                    ranked = category_ranking(live, share, category_of, weight, TOP)
+                    scores[name].append(captured(ranked, target, category_of))
+        for name in policies:
+            results[name][change] = float(np.mean(scores[name]))
+    return results
 
 
 def weighted_hit(answer: Sequence[str], bought: Collection[str]) -> float:
