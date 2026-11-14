@@ -46,6 +46,8 @@ organizers show their fallback list. The **Purchase results** tab shows each cha
 per 100 requests with feedback minus the main version's rate, with a 95% confidence interval using
 Newcombe's method for two independent proportions. A range that includes zero leaves the purchase
 lead uncertain. Treat live snapshots as provisional and assess the difference at the end of the test.
+A challenger pause or resume keeps the same comparison while the planned split and serving records
+are continuous. The backup table counts confirmed takeovers across the whole comparison.
 The practice leaderboard chart uses the organizers' expected purchase rates and labels them as such.
 
 ### Jury view
