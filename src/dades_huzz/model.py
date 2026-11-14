@@ -252,6 +252,58 @@ def subcategory_first(
     return recommend
 
 
+CART_TOP = 3
+"""Carted products only lift slots 1-3 much: 70 vs 6.6 purchases per 10,000 shows there, 23 vs 2.9 in slots
+4-10 (docs/experiments.md row 46)."""
+
+
+def cart_first(
+    base: Recommend,
+    carts: Mapping[str, Sequence[str]],
+    category_of: Mapping[str, str] | None = None,
+    top: int = CART_TOP,
+) -> Recommend:
+    """For a returning shopper: up to `top` products they carted in the history and never bought go first,
+    those of the category they viewed last before the others, then by latest cart. Then `base`'s answer
+    without them. Unavailable products and what the shopper bought in the last minutes
+    (`state.recent_purchases`) are never shown, in the picks or in `base`'s answer; a short answer is padded
+    from `state.fallback`. Everyone else gets `base`'s answer unchanged."""
+
+    def recommend(request: Record, state: State) -> list[str]:
+        answer = base(request, state)
+        user = request.get("user_id") or ""
+        carted = carts.get(user)
+        if request.get("is_new_user") or not carted:
+            return answer
+        recent = state.recent_purchases.get(user, frozenset())
+        viewed = [view["product_id"] for view in request.get("recent_views") or []]
+        last = viewed[-1] if viewed else None
+        last_category = (
+            state.category.get(last) or (category_of or {}).get(last) if last else None
+        )
+
+        def category(product_id: str) -> str | None:
+            return state.category.get(product_id) or (category_of or {}).get(product_id)
+
+        usable = [p for p in carted if p in state.available and p not in recent]
+        picks = sorted(
+            usable, key=lambda p: last_category is None or category(p) != last_category
+        )[:top]
+        result = list(picks)
+        for product_id in (*answer, *state.fallback):
+            if len(result) == ANSWER_SIZE:
+                break
+            if (
+                product_id not in result
+                and product_id not in recent
+                and product_id in state.available
+            ):
+                result.append(product_id)
+        return result
+
+    return recommend
+
+
 LAURI_SEGMENTS = ("new", "returning")
 """Lauri keeps one set of weights per kind of shopper: a new one has no history, so other signals carry them."""
 LAURI_PER_CATEGORY = 30

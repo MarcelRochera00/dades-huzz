@@ -40,6 +40,7 @@ requests; compare versions only inside the same window, because conversion moves
 | `tati-terminator-category-viewed-live` | Terminator, each category ranked by live sales since the switch plus a tuned share of the history | + live sales | 1.01 (17:50–18:25) |
 | `tati-apocalypse-profile` | Terminator blended with the returning shopper's 3 favourite categories; never what they bought | + shopper profile, purchases | **1.26** (17:50–18:25) |
 | `tati-armageddon-viewed-profile` | Apocalypse with up to 3 viewed products on top | same | 1.00 (17:50–18:25) |
+| `tati-cart-profile` | Apocalypse with up to 3 products the returning shopper carted in the history and never bought on top (those of the category viewed last first) | + history carts | not served yet |
 | `lauri-titan-feedback` | Scores every candidate of the versions above with weights learned from our own carousels, and shows the 10 most likely to be bought | all of the above, weighed by `scripts/train_lauri.py` | not served yet |
 
 Which versions ran when is in the heartbeats (`scripts/check_serving.py`, the dashboard's splits view); why
