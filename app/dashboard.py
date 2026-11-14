@@ -26,6 +26,7 @@ from dades_huzz.dashboard_splits import (
     SplitPeriod,
     SplitStats,
     load_splits,
+    purchase_difference,
     read_split_stats,
 )
 from dades_huzz.dashboard_team import read_cold_groups, read_health, read_trends
@@ -378,6 +379,35 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
         st.caption(
             "Purchase results include what happened after either backup was shown."
         )
+        show_purchase_differences(stats)
+
+
+def show_purchase_differences(stats: SplitStats) -> None:
+    main, *challengers = stats.rows
+    st.markdown("**Difference in purchases per 100 requests**")
+    st.caption(f"Comparing each challenger with the main version, {main.version}.")
+    comparisons = []
+    for challenger in challengers:
+        difference = purchase_difference(challenger, main)
+        comparisons.append(
+            {
+                "Challenger": challenger.version,
+                "Observed difference": f"{difference.estimate:+.2f}"
+                if difference
+                else "—",
+                "95% confidence interval": (
+                    f"{difference.lower:+.2f} to {difference.upper:+.2f}"
+                    if difference
+                    else "Waiting for feedback from both versions"
+                ),
+            }
+        )
+    st.dataframe(comparisons, hide_index=True, width="stretch")
+    st.caption(
+        "Positive values favor the challenger. Negative values favor the main version. "
+        "If the range includes zero, either version could be ahead. "
+        "Use live results as a snapshot and judge the difference at the end of the test."
+    )
 
 
 def shopper_groups(end: datetime) -> None:

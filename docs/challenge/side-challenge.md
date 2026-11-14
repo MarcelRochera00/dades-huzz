@@ -42,8 +42,11 @@ Each chart will state the decision it supports.
 
 The A/B comparison uses purchases recorded in feedback. Credit each request and its outcome to
 the version that was supposed to answer it, including when another version steps in or the
-organizers show their fallback list. The practice leaderboard chart uses the organizers' expected
-purchase rates and labels them as such.
+organizers show their fallback list. The **Purchase results** tab shows each challenger's purchases
+per 100 requests with feedback minus the main version's rate, with a 95% confidence interval using
+Newcombe's method for two independent proportions. A range that includes zero leaves the purchase
+lead uncertain. Treat live snapshots as provisional and assess the difference at the end of the test.
+The practice leaderboard chart uses the organizers' expected purchase rates and labels them as such.
 
 ### Jury view
 
