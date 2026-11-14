@@ -51,6 +51,10 @@ can be compared between versions. _Avoid_: model, run.
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
+**Trend**: the live ordering of products by recent organic activity in `shop.events`. A new shopper
+is answered with that ordering. For anyone else it reorders the category list. A product the shopper
+just bought is left out of the answer.
+
 **Serving loop**: the process that pulls new requests, keeps the state fresh and pushes answers. Only
 one runs for the team at a time. _Avoid_: bot, script.
 

@@ -1,8 +1,14 @@
-"""Signals precomputed from the history (lane B), built in RawTree SQL and loaded once at start."""
+"""Signals for ranking.
 
-from dataclasses import dataclass
+Lane B precomputes history signals in RawTree SQL and loads them once at start.
+Lane C scores the live stream: a trend is the weighted count of `shop.events` over the last 15 minutes.
+"""
 
-from dades_huzz.data import RawTree
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+
+from dades_huzz.data import RawTree, Record, State
 
 CATEGORY_RANKING = """
 SELECT e.product_id AS product_id, c.category AS category, count() AS n
@@ -57,6 +63,80 @@ def category_signals(
     ):
         ranked.setdefault(row["category"], []).append(row["product_id"])
     return CategorySignals(category_of=category_of, ranked_by_category=ranked)
+
+
+TREND_WINDOW = timedelta(minutes=15)
+"""How far back a trend looks. The window itself is the detector for this slice."""
+
+TREND_WEIGHT = {"purchase": 4, "add_to_cart": 3, "view": 1}
+"""What one organic event adds to a product's trend score."""
+
+
+def _as_utc(ts: datetime | str) -> datetime:
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+    text = str(ts).replace("T", " ").removesuffix("Z")
+    if "." in text:
+        parsed = datetime.strptime(text[:26], "%Y-%m-%d %H:%M:%S.%f")
+    else:
+        parsed = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+    return parsed.replace(tzinfo=UTC)
+
+
+def trend_scores(events: Iterable[Record], now: datetime) -> dict[str, int]:
+    """Each product's weight in `shop.events` over the last 15 minutes, ending at `now`.
+
+    A purchase counts 4, an add-to-cart 3 and a view 1. An event at or before `now` minus 15 minutes,
+    or after `now`, does not count.
+    """
+    end = _as_utc(now)
+    start = end - TREND_WINDOW
+    scores: dict[str, int] = {}
+    for event in events:
+        when = _as_utc(event["ts"])
+        if when <= start or when > end:
+            continue
+        weight = TREND_WEIGHT.get(str(event["event_type"]))
+        if weight is None:
+            continue
+        product_id = str(event["product_id"])
+        scores[product_id] = scores.get(product_id, 0) + weight
+    return scores
+
+
+def purchases_in_window(
+    events: Iterable[Record], now: datetime
+) -> dict[str, frozenset[str]]:
+    """Each shopper's organic purchases in the last 15 minutes."""
+    end = _as_utc(now)
+    start = end - TREND_WINDOW
+    bought: dict[str, set[str]] = {}
+    for event in events:
+        if str(event.get("event_type")) != "purchase":
+            continue
+        when = _as_utc(event["ts"])
+        if when <= start or when > end:
+            continue
+        bought.setdefault(str(event.get("user_id")), set()).add(
+            str(event["product_id"])
+        )
+    return {user_id: frozenset(products) for user_id, products in bought.items()}
+
+
+def bought_in_window(
+    events: Iterable[Record], user_id: str, now: datetime
+) -> frozenset[str]:
+    """Products this shopper purchased in the same 15-minute window (organic events only)."""
+    return purchases_in_window(events, now).get(user_id, frozenset())
+
+
+def apply_live_signals(state: State, events: Iterable[Record], now: datetime) -> State:
+    """A state whose trend and recent purchases come from these organic events."""
+    return replace(
+        state,
+        trend=trend_scores(events, now),
+        recent_purchases=purchases_in_window(events, now),
+    )
 
 
 def best_sellers_until(rawtree: RawTree, until: str) -> list[str]:

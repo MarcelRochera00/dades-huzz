@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
 from dades_huzz.features import category_signals
-from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.model import best_sellers, category_best_sellers, with_trend
 from dades_huzz.serving.loop import Recommend
 
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
@@ -38,6 +38,11 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
             category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
         ),
         keep_viewed=True,
+    ),
+    "tati-trend": lambda rawtree: with_trend(
+        **vars(
+            category_signals(rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}")
+        )
     ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""

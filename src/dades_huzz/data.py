@@ -3,7 +3,7 @@
 import os
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,10 @@ class State:
     """Products added during the event: a request that viewed one is a cold request."""
     fallback: tuple[str, ...]
     """The all-time best sellers that are available, best first: the baseline, and what pads a short answer."""
+    trend: dict[str, int] = field(default_factory=dict)
+    """Product weight in `shop.events` over the last 15 minutes: purchase 4, add-to-cart 3, view 1."""
+    recent_purchases: dict[str, frozenset[str]] = field(default_factory=dict)
+    """Shopper to the products they purchased in that same window. An answer leaves those out."""
 
 
 def current_state(
@@ -206,6 +210,16 @@ GROUP BY product_id
 ORDER BY n DESC, product_id DESC"""
 """Every product ever bought in the history, best-selling first: the organisers' baseline ranking."""
 
+RECENT_EVENTS = """
+SELECT
+    ts::DateTime64(3) AS ts,
+    event_type::String AS event_type,
+    product_id::String AS product_id,
+    user_id::String AS user_id
+FROM shop.events
+WHERE ts::DateTime64(3) > now() - INTERVAL 15 MINUTE"""
+"""Organic events in the trend window: views, add-to-cart and purchases."""
+
 
 class RawTree:
     """The RawTree HTTP API for one team: read anything the key can see, write into our own database."""
@@ -285,6 +299,10 @@ class RawTree:
         return int(
             self.query("SELECT toUnixTimestamp64Milli(now64(3)) AS now_ms")[0]["now_ms"]
         )
+
+    def recent_events(self) -> list[Record]:
+        """Organic events in the last 15 minutes. Empty until the live stream has rows."""
+        return self.query(RECENT_EVENTS, timeout=2)
 
     def best_sellers(self) -> list[str]:
         return [row["product_id"] for row in self.query(BEST_SELLERS, timeout=30)]

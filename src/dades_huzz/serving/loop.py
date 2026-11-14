@@ -10,6 +10,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,7 @@ from dades_huzz.data import (
     current_state,
     recently_changed,
 )
+from dades_huzz.features import apply_live_signals
 from dades_huzz.serving.handover import Handover, now_ms
 from dades_huzz.serving.watchdog import mark_alive
 
@@ -38,6 +40,8 @@ MAX_AGE_MS = 2400
 STATE_REFRESH_S = 0.25
 """Stock can change at any moment: start a read of new catalogue updates this often (each read is small,
 about 0.2 s), so a change reaches the loop well under a second after it lands in RawTree."""
+TREND_REFRESH_S = 30
+"""How often the 15-minute trend is re-read. The window moves in minutes, so this is not on the stock clock."""
 LATE_UPDATE_MS = 120_000
 """Each read of catalogue updates goes back this far, so an update that lands in RawTree up to 2 minutes
 after a newer one is still read (about 30 rows per read)."""
@@ -105,11 +109,22 @@ class LiveState:
                 lambda: rawtree.catalog_updates_since(0), "catalogue updates", on_retry
             )
         )
+        self.events: list[Record] = []
+        self.events_at = 0.0
+        self._load_events()
         self._rebuild()
         threading.Thread(target=self._refresh_forever, daemon=True).start()
 
+    def _load_events(self) -> None:
+        try:
+            self.events = self.rawtree.recent_events()
+            self.events_at = time.time()
+        except Exception as e:  # noqa: BLE001  a failed trend read keeps the previous window
+            print(f"trend read failed: {e}", flush=True)
+
     def _rebuild(self) -> None:
         state = current_state(self.catalog, self.updates.rows, self.best_sellers)
+        state = apply_live_signals(state, self.events, datetime.now(UTC))
         self.allowed = state.available - recently_changed(
             self.updates.rows, now_ms(), RECENT_CHANGE_MS
         )
@@ -131,6 +146,8 @@ class LiveState:
                 time.sleep(STATE_REFRESH_S)
                 continue
             new = self.updates.add(rows)
+            if time.time() - self.events_at >= TREND_REFRESH_S:
+                self._load_events()
             seen_ms = now_ms()
             for row in (
                 new
