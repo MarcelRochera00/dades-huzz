@@ -79,9 +79,10 @@ def _subcategory_first_live(rawtree: RawTree) -> Recommend:
     )
 
 
-def _omega(rawtree: RawTree) -> Recommend:
+def _omega(rawtree: RawTree, day_weight: float = 0.0) -> Recommend:
     """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
-    (#38), and for a new shopper with views the subcategory viewed last first (#46)."""
+    (#38), and for a new shopper with views the subcategory viewed last first (#46).
+    With `day_weight`, Tati Omega+: the categories viewed today (#54) count too, also for new shoppers."""
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     signals = live_category_signals(rawtree)
     return subcategory_first(
@@ -90,15 +91,17 @@ def _omega(rawtree: RawTree) -> Recommend:
             keep_viewed=True,
             profiles=shopper_profiles(rawtree, until=until),
             bought=shopper_purchases(rawtree, until=until),
+            day_weight=day_weight,
         ),
         signals.ranked_by_category,
         signals.category_of,
     )
 
 
-def _lauri(rawtree: RawTree, name: str) -> Recommend:
+def _lauri(rawtree: RawTree, name: str, day: bool = False) -> Recommend:
     """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
-    ranking's products with each shopper's profile, and never showing what they bought."""
+    ranking's products with each shopper's profile, and never showing what they bought.
+    With `day`, Lauri Colossus: the shopper's day so far in `State` counts too."""
     weights = load_lauri_weights(rawtree, name)
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     ranking = LiveCategoryRanking(rawtree).start()
@@ -114,6 +117,7 @@ def _lauri(rawtree: RawTree, name: str) -> Recommend:
         ),
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
+        day=day,
     )
 
 
@@ -153,12 +157,16 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
     ),
     "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
+    "tati-omega-plus-day": lambda rawtree: _omega(rawtree, day_weight=3.0),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
     ),
     "tati-cart-profile": lambda rawtree: _cart_profile(rawtree),
     "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
+    "lauri-colossus-feedback": lambda rawtree: _lauri(
+        rawtree, "lauri-colossus-feedback", day=True
+    ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 

@@ -617,6 +617,131 @@ def test_lauri_never_pads_with_an_unavailable_product():
     assert set(answer) <= available
 
 
+def test_todays_views_count_as_a_profile_for_a_shopper_without_history():
+    from dataclasses import replace
+
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Omega+: a new shopper has no history, but #54's State counts the categories they viewed today
+    # (an add-to-cart counts 3): those join the category viewed last like a history profile
+    kwargs = {
+        "category_of": {"v_last": "electronics"},
+        "ranked_by_category": {"electronics": ["e_1", "e_2"], "toys": ["t_1", "t_2"]},
+        "keep_viewed": True,
+    }
+    state = replace(
+        _state(extra={"e_1", "e_2", "t_1", "t_2", "v_last"}),
+        shopper_categories={"u_new": {"toys": 3, "electronics": 1}},
+    )
+    request = {"user_id": "u_new", "recent_views": [{"product_id": "v_last"}]}
+    # today's shares: toys 0.75, electronics 0.25; at w = 3, toys 2.25 and electronics 1 + 0.75 = 1.75
+    answer = category_best_sellers(**kwargs, day_weight=3.0)(request, state)
+    assert answer[:4] == ["t_1", "e_1", "t_2", "e_2"]
+    # without day_weight, exactly Terminator
+    assert category_best_sellers(**kwargs)(request, state)[:3] == ["e_1", "e_2", "p_00"]
+
+
+def test_todays_views_add_to_the_history_profile():
+    from dataclasses import replace
+
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={"toys": ["t_1"], "books": ["b_1"]},
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 1.0}},
+        profile_weight=1.0,
+        day_weight=3.0,
+    )
+    state = replace(
+        _state(extra={"t_1", "b_1"}), shopper_categories={"u_1": {"books": 2}}
+    )
+    # toys 1 (history), books 3 (today): books first
+    assert recommend({"user_id": "u_1", "recent_views": []}, state)[:2] == [
+        "b_1",
+        "t_1",
+    ]
+
+
+def test_lauri_colossus_brings_in_and_ranks_the_shoppers_day():
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    state = _lauri_state(
+        available=frozenset(products) | {"c_cart", "c_seen"},
+        category={p: p[0] for p in [*products, "c_cart", "c_seen"]},
+        shopper_categories={"u": {"b": 5, "a": 1}},
+        shopper_carted={"u": frozenset({"c_cart"})},
+        shopper_viewed={"u": ("c_seen",)},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    weights = {"day_carted": 5.0, "day_viewed": 3.0, "day_category_share": 1.0}
+    answer = _lauri(weights, day=True)(request, state)
+    assert answer[:2] == ["c_cart", "c_seen"]
+    assert all(product.startswith("b_") for product in answer[2:])
+    assert _lauri(weights, day=True)({**request, "user_id": "other"}, state) == _lauri(
+        weights
+    )(request, state)
+
+
+def test_lauri_titan_ignores_the_day_and_keeps_its_thirteen_weights():
+    from dades_huzz.model import lauri
+
+    state = _lauri_state(
+        shopper_categories={"u": {"b": 5}},
+        shopper_carted={"u": frozenset({"b_9"})},
+        shopper_viewed={"u": ("b_8",)},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    thirteen = {"weights": [0.0] * 7 + [1.0] + [0.0] * 5}  # log_history_sales only
+    recommend = lauri(
+        {"new": thirteen, "returning": thirteen},
+        ranked_by_category={},
+        history_sales={"a_3": 9, "b_3": 1},
+        live_sales={},
+        median_log_price={},
+    )
+    assert recommend(request, state)[:2] == ["a_3", "b_3"]
+    assert not {"b_8", "b_9"} & set(recommend(request, state))
+    assert recommend(request, state) == recommend(request, _lauri_state())
+
+
+def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
+    import numpy as np
+
+    from dades_huzz.features import (
+        LAURI_DAY_FEATURES,
+        LAURI_FEATURES,
+        LauriTrainingRows,
+    )
+    from dades_huzz.model import fit_lauri, lauri_scores
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    features = rng.random((n * 10, len(LAURI_FEATURES)))
+    chance = 1 / (1 + np.exp(-(-2.0 + 2.0 * features[:, -3])))  # day_carted matters
+    rows = LauriTrainingRows(
+        features=features,
+        slot=np.tile(np.arange(10), n),
+        owned=np.zeros(n * 10),
+        purchased=(rng.random(n * 10) < chance).astype(float),
+        clicked=np.zeros(n * 10),
+        request=np.repeat(np.arange(n), 10),
+        ts_ms=np.zeros(n * 10),
+        is_new_user=np.repeat(rng.random(n) < 0.5, 10),
+    )
+    everything = np.ones(n * 10, dtype=bool)
+    titan = [f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES]
+    without = fit_lauri(rows, everything, rows.purchased, l2=1.0, features=titan)
+    full = fit_lauri(rows, everything, rows.purchased, l2=1.0)
+    for segment in ("new", "returning"):
+        assert len(without[segment]["weights"]) == len(LAURI_FEATURES)
+        assert without[segment]["weights"][-4:] == [0.0] * 4
+        assert len(without[segment]["slot"]) == 9
+        assert 1.5 < full[segment]["weights"][-3] < 2.5
+    old = {s: {**w, "weights": w["weights"][:13]} for s, w in without.items()}
+    assert np.allclose(lauri_scores(old, rows)[0], lauri_scores(without, rows)[0])
+
+
 def _cart_state(**changes):
     base = {
         "available": frozenset(

@@ -44,7 +44,8 @@ Read `docs/challenge/` (what the company asked for), `docs/contracts.md` (what t
 
 Each lane has one issue on GitHub (label `area:live`, `area:model`, `area:learning` or
 `area:decisions`), linked from the index issue (label `wayfinder:map`). Lanes and owners are in
-`docs/contracts.md`.
+`docs/contracts.md`. In chat, "Gabo" or "G" means Gabriel (`ProGabo`) and "MR" means Marcel
+(`MarcelRochera00`).
 
 - Work on your lane issue and tick its checklist as slices reach `main`.
 - When you find a problem or an idea outside the current task, do not fix it in this branch. Open an

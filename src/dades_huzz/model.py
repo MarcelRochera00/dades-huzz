@@ -11,6 +11,7 @@ import numpy as np
 from dades_huzz.data import RawTree, Record, State
 from dades_huzz.features import (
     LAURI_FEATURES,
+    LauriDay,
     LauriSignals,
     LauriTrainingRows,
     lauri_features,
@@ -91,6 +92,7 @@ def category_best_sellers(
     profile_weight: float = PROFILE_WEIGHT,
     bought: Mapping[str, AbstractSet[str]] | None = None,
     cold_start: bool = False,
+    day_weight: float = 0.0,
 ) -> Recommend:
     """Tati Destroyer: the best sellers of the category the shopper viewed last, then the overall ones.
 
@@ -114,6 +116,9 @@ def category_best_sellers(
     `bought` maps a shopper to the products they already bought; those are never shown. The organisers
     (Discord, Sat 17:09): a shopper who bought a product is much less likely to buy it again, although the
     history was generated without that effect.
+
+    `day_weight` (Tati Omega+) adds the categories the shopper viewed today (`state.shopper_categories`,
+    an add-to-cart counts 3) the same way, at that weight: a new shopper has no history, but often a day.
 
     `cold_start` answers a cold request (a new shopper, or a view of a new product) from the live trend
     instead: see `cold_start_answer`. What the shopper bought is left out there too.
@@ -144,14 +149,24 @@ def category_best_sellers(
             trend_cache[0] = (trend, ranked)
         return ranked
 
-    def candidates(category: str | None, user_id: str | None) -> Sequence[str]:
-        profile = (profiles or {}).get(user_id or "")
-        if not profile:
-            return ranked_by_category.get(category, ()) if category else ()
+    def candidates(
+        category: str | None, user_id: str | None, state: State
+    ) -> Sequence[str]:
         score: dict[str, float] = {category: 1.0} if category else {}
-        favourites = sorted(profile.items(), key=lambda item: (-item[1], item[0]))
-        for name, share in favourites[:PROFILE_TOP]:
-            score[name] = score.get(name, 0.0) + profile_weight * share
+        weighted = [((profiles or {}).get(user_id or ""), profile_weight)]
+        if day_weight:
+            day = state.shopper_categories.get(user_id or "") or {}
+            total = sum(day.values())
+            if total:
+                weighted.append(({c: n / total for c, n in day.items()}, day_weight))
+        if not any(profile for profile, _ in weighted):
+            return ranked_by_category.get(category, ()) if category else ()
+        for profile, weight in weighted:
+            favourites = sorted(
+                (profile or {}).items(), key=lambda item: (-item[1], item[0])
+            )
+            for name, share in favourites[:PROFILE_TOP]:
+                score[name] = score.get(name, 0.0) + weight * share
         merged = [
             ((rank + 1) / value, -value, name, rank, product_id)
             for name, value in score.items()
@@ -177,7 +192,7 @@ def category_best_sellers(
                 lambda device: out_of_band(state, device),
             )
         last_category = category(viewed[-1], state) if viewed else None
-        ranked = candidates(last_category, request.get("user_id"))
+        ranked = candidates(last_category, request.get("user_id"), state)
         answer: list[str] = []
         for product_id in reversed(viewed):
             if len(answer) == viewed_first:
@@ -453,6 +468,8 @@ LAURI_PER_SUBCATEGORY = 15
 LAURI_PER_LIST = 20
 """How many candidates each source gives Lauri: a category's ranking, the subcategory viewed last, and the
 trend and the fallback."""
+LAURI_DAY_CATEGORIES = 3
+"""Lauri Colossus also takes the ranking of this many of the shopper's most viewed categories of the day."""
 SLOTS = 10
 
 LauriWeights = Mapping[str, Mapping[str, object]]
@@ -495,22 +512,42 @@ def _training_columns(rows: LauriTrainingRows) -> np.ndarray:
     return np.c_[rows.features, np.eye(SLOTS)[rows.slot][:, 1:], rows.owned]
 
 
+def _feature_weights(segment: Mapping[str, object]) -> np.ndarray:
+    """A segment's weights, one per LAURI_FEATURES: weights stored before a feature existed count it as zero."""
+    weights = np.zeros(len(LAURI_FEATURES))
+    stored = np.array(segment["weights"], dtype=float)
+    weights[: len(stored)] = stored
+    return weights
+
+
 def fit_lauri(
-    rows: LauriTrainingRows, keep: np.ndarray, target: np.ndarray, l2: float = 10.0
+    rows: LauriTrainingRows,
+    keep: np.ndarray,
+    target: np.ndarray,
+    l2: float = 10.0,
+    features: Sequence[str] = LAURI_FEATURES,
 ) -> dict[str, dict[str, object]]:
     """Lauri's weights from the training rows in `keep`. The slot a product was shown in and whether the
     shopper already owned it are fitted next to the features, so they do not leak into the features'
-    weights, and are then left out when serving: we choose the slot, and never show an owned product."""
+    weights, and are then left out when serving: we choose the slot, and never show an owned product.
+
+    Only `features` are fitted; the other LAURI_FEATURES get weight zero."""
     columns, n = _training_columns(rows), len(LAURI_FEATURES)
+    used = [i for i, name in enumerate(LAURI_FEATURES) if name in features]
+    chosen = [*used, *range(n, columns.shape[1])]
     fitted = {}
     for segment, mask in zip(
         LAURI_SEGMENTS, (rows.is_new_user, ~rows.is_new_user), strict=True
     ):
-        bias, weights = fit_logistic(columns[keep & mask], target[keep & mask], l2)
+        bias, weights = fit_logistic(
+            columns[keep & mask][:, chosen], target[keep & mask], l2
+        )
+        full = np.zeros(n)
+        full[used] = weights[: len(used)]
         fitted[segment] = {
             "bias": bias,
-            "weights": weights[:n].tolist(),
-            "slot": weights[n:-1].tolist(),
+            "weights": full.tolist(),
+            "slot": weights[len(used) : -1].tolist(),
             "owned": float(weights[-1]),
         }
     return fitted
@@ -527,9 +564,10 @@ def lauri_scores(
         LAURI_SEGMENTS, (rows.is_new_user, ~rows.is_new_user), strict=True
     ):
         w = weights[segment]
-        full = np.r_[w["weights"], w["slot"], w["owned"]]
+        features = _feature_weights(w)
+        full = np.r_[features, w["slot"], w["owned"]]
         shown[mask] = w["bias"] + columns[mask] @ full
-        served[mask] = rows.features[mask] @ np.array(w["weights"])
+        served[mask] = rows.features[mask] @ features
     return shown, served
 
 
@@ -567,6 +605,7 @@ def lauri(
     median_log_price: Mapping[str, float],
     profiles: Mapping[str, Mapping[str, float]] | None = None,
     bought: Mapping[str, AbstractSet[str]] | None = None,
+    day: bool = False,
 ) -> Recommend:
     """Lauri Titan: scores every candidate with weights learned from our own carousels and shows the ten
     most likely to be bought.
@@ -576,11 +615,22 @@ def lauri(
     subcategory viewed last, the trend and the fallback. A shopper's purchases, from the history (`bought`)
     or recent (`state.recent_purchases`), are never shown. A new shopper and a returning one have their own
     weights. On any error the answer is the fallback.
+
+    With `day` (Lauri Colossus) the shopper's day so far in `State` counts too: what they carted and viewed
+    today and the ranking of their three most viewed categories of the day join the candidates, and the
+    day's features are scored.
     """
     by_segment = {
-        segment: np.array(weights[segment]["weights"], dtype=float)
-        for segment in LAURI_SEGMENTS
+        segment: _feature_weights(weights[segment]) for segment in LAURI_SEGMENTS
     }
+
+    def day_of(user: str, state: State) -> LauriDay:
+        return LauriDay(
+            state.shopper_categories.get(user, {}),
+            state.shopper_carted.get(user, frozenset()),
+            state.shopper_viewed.get(user, ()),
+        )
+
     trend_cache: list[tuple[Mapping[str, int], list[str]]] = [({}, [])]
 
     def trending(state: State) -> list[str]:
@@ -607,6 +657,14 @@ def lauri(
             favourites = sorted(profile, key=lambda name: (-profile[name], name))
             categories += favourites[:PROFILE_TOP]
         pool: dict[str, None] = dict.fromkeys(reversed(viewed))
+        today = day_of(user, state) if day else None
+        if today:
+            pool.update(dict.fromkeys(sorted(today.carted)))
+            pool.update(dict.fromkeys(today.viewed))
+            counts = today.categories
+            categories += sorted(counts, key=lambda name: (-counts[name], name))[
+                :LAURI_DAY_CATEGORIES
+            ]
         for name in dict.fromkeys(categories):
             pool.update(
                 dict.fromkeys(ranked_by_category.get(name, ())[:LAURI_PER_CATEGORY])
@@ -631,7 +689,8 @@ def lauri(
         )
         segment = "new" if request.get("is_new_user") else "returning"
         scores = (
-            lauri_features(candidates, viewed, profile, signals) @ by_segment[segment]
+            lauri_features(candidates, viewed, profile, signals, today)
+            @ by_segment[segment]
         )
         best = [candidates[i] for i in np.argsort(-scores, kind="stable")[:ANSWER_SIZE]]
         for product in state.fallback:

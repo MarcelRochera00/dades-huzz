@@ -62,6 +62,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#ad4659",
         "Apocalypse on the live ranking, with the subcategory first for new shoppers.",
     ),
+    "tati-omega-plus-day": VersionStyle(
+        "#6b4fa3",
+        "Omega plus the categories each shopper viewed today, so new shoppers get a profile too.",
+    ),
     "tati-cart-profile": VersionStyle(
         "#2a9d8f",
         "Apocalypse with up to 3 products the shopper carted in the history and never bought on top.",
@@ -69,6 +73,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
     "lauri-titan-feedback": VersionStyle(
         "#e07b00",
         "Learned ranking: weights trained on our own carousels score each product for the shopper.",
+    ),
+    "lauri-colossus-feedback": VersionStyle(
+        "#7a3d00",
+        "Titan retrained on more carousels, plus the shopper's day: today's categories, cart and views.",
     ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
