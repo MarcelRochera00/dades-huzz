@@ -1,6 +1,7 @@
 """Private Streamlit dashboard for the RawTree team and jury demo."""
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -296,13 +297,30 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
 
 def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
     st.subheader("How often did a backup answer?")
-    tests = [period for period in reversed(periods) if len(period.shares) > 1]
+    tests: list[SplitPeriod] = []
+    for period in periods:
+        if len(period.shares) < 2:
+            continue
+        previous = tests[-1] if tests else None
+        if (
+            previous is not None
+            and previous.end == period.start
+            and previous.configuration == period.configuration
+            and previous.source == period.source
+        ):
+            tests[-1] = replace(
+                previous,
+                end=period.end,
+                out=tuple(sorted(set(previous.out) | set(period.out))),
+            )
+        else:
+            tests.append(period)
     if not tests:
         st.info("No recorded side-by-side test is available yet.")
         return
     chosen = st.selectbox(
         "Compare versions from",
-        [period.start for period in tests],
+        [period.start for period in reversed(tests)],
         format_func=lambda key: key.astimezone(BARCELONA).strftime("%d %b %H:%M:%S %Z"),
     )
     period = next(period for period in tests if period.start == chosen)
@@ -327,7 +345,8 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
         )
     if period.out:
         st.caption(
-            f"Covered by the main version during this period: {', '.join(period.out)}"
+            f"Paused at some point in this test: {', '.join(period.out)}. "
+            "Their assigned requests still count in this comparison."
         )
     st.caption(
         "Confirmed team backup counts requests where our main version covered a challenger. "
