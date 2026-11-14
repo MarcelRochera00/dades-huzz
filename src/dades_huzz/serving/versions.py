@@ -36,6 +36,7 @@ from dades_huzz.model import (
     category_best_sellers,
     lauri,
     load_lauri_weights,
+    subcategory_first,
 )
 from dades_huzz.serving.loop import Recommend
 
@@ -51,6 +52,34 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         viewed_first=viewed_first,
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
+    )
+
+
+def _subcategory_first_live(rawtree: RawTree) -> Recommend:
+    """Terminator with the live category ranking (#38), and for a new shopper with views the two best sellers
+    of the subcategory they viewed last on top."""
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(**vars(signals), keep_viewed=True),
+        signals.ranked_by_category,
+        signals.category_of,
+    )
+
+
+def _omega(rawtree: RawTree) -> Recommend:
+    """Tati Omega: Apocalypse (favourite categories, never what was bought) on the live category ranking
+    (#38), and for a new shopper with views the subcategory viewed last first (#46)."""
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(
+            **vars(signals),
+            keep_viewed=True,
+            profiles=shopper_profiles(rawtree, until=until),
+            bought=shopper_purchases(rawtree, until=until),
+        ),
+        signals.ranked_by_category,
+        signals.category_of,
     )
 
 
@@ -106,6 +135,11 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
+    "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
+    "tati-terminator-live-cold": lambda rawtree: category_best_sellers(
+        **vars(live_category_signals(rawtree)), keep_viewed=True, cold_start=True
+    ),
+    "tati-omega-live-profile": lambda rawtree: _omega(rawtree),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3

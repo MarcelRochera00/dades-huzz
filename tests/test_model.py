@@ -328,6 +328,79 @@ def test_products_the_shopper_already_bought_are_left_out():
     assert len(set(answer)) == 10
 
 
+def _subcategory_state():
+    products = [f"t_{i}" for i in range(12)] + ["v_0"]
+    return State(
+        available=frozenset(products) | {"x_0", "x_1"},
+        price={},
+        new_products=frozenset(),
+        fallback=("x_0", "x_1"),
+        category={p: "Toys" for p in products},
+        subcategory={
+            **{f"t_{i}": "Dolls" if i % 3 == 0 else "Cars" for i in range(12)},
+            "v_0": "Dolls",
+        },
+    )
+
+
+def _terminator_like(request, state):
+    """Stands in for any version: the category's products by rank, viewed ones kept."""
+    return [f"t_{i}" for i in range(10)]
+
+
+def test_a_new_shopper_gets_two_best_sellers_of_the_subcategory_viewed_last_on_top():
+    from dades_huzz.model import subcategory_first
+
+    ranked = {"Toys": [f"t_{i}" for i in range(12)]}
+    recommend = subcategory_first(_terminator_like, ranked)
+    request = {"is_new_user": True, "recent_views": [{"product_id": "v_0"}]}
+    answer = recommend(request, _subcategory_state())
+    # t_0, t_3 are the category's two best Dolls; the rest keep the base order
+    assert answer == [
+        "t_0",
+        "t_3",
+        "t_1",
+        "t_2",
+        "t_4",
+        "t_5",
+        "t_6",
+        "t_7",
+        "t_8",
+        "t_9",
+    ]
+
+
+def test_returning_shoppers_and_shoppers_without_views_keep_the_base_answer():
+    from dades_huzz.model import subcategory_first
+
+    ranked = {"Toys": [f"t_{i}" for i in range(12)]}
+    recommend = subcategory_first(_terminator_like, ranked)
+    base = _terminator_like({}, _subcategory_state())
+    returning = {"is_new_user": False, "recent_views": [{"product_id": "v_0"}]}
+    no_views = {"is_new_user": True, "recent_views": []}
+    assert recommend(returning, _subcategory_state()) == base
+    assert recommend(no_views, _subcategory_state()) == base
+
+
+def test_the_subcategory_picks_skip_viewed_and_unavailable_products():
+    from dades_huzz.model import subcategory_first
+
+    ranked = {"Toys": ["v_0", "t_0", "t_3", "t_6", "t_1"]}
+    state = _subcategory_state()
+    state = State(
+        available=state.available - {"t_0"},
+        price={},
+        new_products=frozenset(),
+        fallback=state.fallback,
+        category=state.category,
+        subcategory=state.subcategory,
+    )
+    recommend = subcategory_first(_terminator_like, ranked)
+    request = {"is_new_user": True, "recent_views": [{"product_id": "v_0"}]}
+    assert recommend(request, state)[:2] == ["t_3", "t_6"]
+    assert len(recommend(request, state)) == 10
+
+
 def _lauri_state(**changes):
     products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
     fields = {
