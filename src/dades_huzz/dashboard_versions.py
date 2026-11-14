@@ -86,6 +86,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#f2b134",
         "Titan's weights, reaching 100 deep into each category's ranking instead of 30.",
     ),
+    "lauri-titan-cold60": VersionStyle(
+        "#3a7d44",
+        "Titan, with cold requests answered by #60's rule: the 15-min leading category, then device shares.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 

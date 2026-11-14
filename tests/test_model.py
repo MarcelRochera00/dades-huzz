@@ -905,3 +905,24 @@ def test_new_shoppers_and_shoppers_without_carts_keep_the_base_answer():
     base = _terminator_like({}, _cart_state())
     assert recommend({"user_id": "u_1", "is_new_user": True}, _cart_state()) == base
     assert recommend({"user_id": "u_2", "is_new_user": False}, _cart_state()) == base
+
+
+def test_cold_first_sends_cold_requests_to_the_cold_answer_and_the_rest_to_the_base():
+    from dataclasses import replace
+
+    from dades_huzz.model import cold_first
+
+    def base(request, state):
+        return ["base"]
+
+    def cold(request, state):
+        return ["cold"]
+
+    recommend = cold_first(base, cold)
+    state = replace(_lauri_state(), new_products=frozenset({"a_new"}))
+    returning = {"user_id": "u", "is_new_user": False, "recent_views": []}
+    assert recommend({**returning, "is_new_user": True}, state) == ["cold"]
+    assert recommend(
+        {**returning, "recent_views": [{"product_id": "a_new"}]}, state
+    ) == ["cold"]
+    assert recommend(returning, state) == ["base"]

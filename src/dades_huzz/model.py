@@ -475,6 +475,24 @@ CART_TOP = 3
 4-10 (docs/experiments.md row 46)."""
 
 
+def is_cold(request: Record, state: State) -> bool:
+    """A cold request: a new shopper, or a view of a product the history does not know."""
+    return bool(request.get("is_new_user")) or any(
+        view["product_id"] in state.new_products
+        for view in request.get("recent_views") or []
+    )
+
+
+def cold_first(base: Recommend, cold: Recommend) -> Recommend:
+    """Cold requests (`is_cold`) get `cold`'s answer, every other request `base`'s. Lauri Titan cold60 is
+    Titan with the cold-start rule of #60 (`cold_start_answer`) for its cold requests."""
+
+    def recommend(request: Record, state: State) -> list[str]:
+        return (cold if is_cold(request, state) else base)(request, state)
+
+    return recommend
+
+
 def cart_first(
     base: Recommend,
     carts: Mapping[str, Sequence[str]],
