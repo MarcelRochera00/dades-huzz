@@ -669,11 +669,11 @@ def jury_trend(rows: list[JuryBucket]) -> None:
             alt.Tooltip(f"{rate_label}:Q", format=".2f"),
         ],
     )
-    bars = timeline.mark_bar(
-        color=TEAL, cornerRadiusTopLeft=3, cornerRadiusTopRight=3
-    ).encode(x2="To:T")
-    zero_marks = timeline.transform_filter(alt.datum[metric] == 0).mark_tick(
-        color=TEAL, size=8, thickness=2
+    bars = timeline.mark_bar(color=TEAL, orient="vertical").encode(
+        x2="To:T", y2=alt.Y2(datum=0)
+    )
+    zero_marks = timeline.mark_tick(color=TEAL, size=8, thickness=2).encode(
+        opacity=alt.condition(alt.datum[metric] == 0, alt.value(1), alt.value(0))
     )
     st.altair_chart(
         chart_style((bars + zero_marks).properties(height=230)),
@@ -695,13 +695,17 @@ def jury_demand() -> None:
         return
     end, trends = snapshot
     st.caption(
-        f"Store purchases in the 15 minutes to {local_time(end.timestamp())}, "
-        "compared with each subcategory’s share of purchases since the stream opened."
+        f"Simulated store purchases · 15 minutes ending {local_time(end.timestamp())}"
+    )
+    st.markdown(
+        "The multiplier compares a subcategory’s share of all store purchases in this "
+        "window with its share since the simulation began. For example, **6% in this "
+        "window ÷ 1% since the start = 6×**."
     )
     if not trends:
         st.markdown(
-            "No demand spikes met the threshold in this window. In Saturday’s practice replay, "
-            "Game Consoles peaked at **6.98× its whole-stream purchase share**."
+            "No unusual shifts in demand in this window. In Saturday’s practice replay, "
+            "Game Consoles peaked at **6.98× its share since the simulation began**."
         )
     else:
         frame = pd.DataFrame(
@@ -713,7 +717,7 @@ def jury_demand() -> None:
         bars = alt.Chart(frame).encode(
             x=alt.X(
                 "Purchase share multiple:Q",
-                title="Multiple of whole-stream purchase share",
+                title="Share of store purchases vs. share since start",
                 scale=alt.Scale(
                     domain=[0, frame["Purchase share multiple"].max() * 1.18]
                 ),
@@ -730,9 +734,8 @@ def jury_demand() -> None:
             width="stretch",
         )
     st.caption(
-        "The detector flags a subcategory when its purchase share at least doubles "
-        "and records at least 25 more purchases than that share would predict. "
-        "Use the signal to check stock and test featuring relevant products while demand is high."
+        "Use this storewide signal to check stock and test featuring relevant products "
+        "while demand is high."
     )
 
 
