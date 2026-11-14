@@ -179,3 +179,9 @@ def test_paired_difference_interval_holds_the_estimate_and_repeats_with_the_seed
     assert first.diff == pytest.approx(11 / 8)
     assert first.low < first.diff < first.high
     assert first.ratio_low < first.ratio < first.ratio_high
+
+
+def test_paired_difference_without_requests_is_zero_instead_of_crashing():
+    from dades_huzz.evaluation import paired_difference
+
+    assert paired_difference([], [], []).diff == 0.0

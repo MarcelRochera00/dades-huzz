@@ -152,6 +152,8 @@ def paired_difference(
     each redrawn week draws whole shoppers (`request.user_id`) with replacement, never single requests;
     a request without a user_id is its own shopper. The intervals are the 2.5 and 97.5 percentiles.
     """
+    if not cases:
+        return PairedDifference(0.0, 0.0, 0.0, math.nan, math.nan, math.nan)
     groups: dict[Any, int] = {}
     codes = []
     for index, case in enumerate(cases):
