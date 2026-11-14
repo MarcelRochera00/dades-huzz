@@ -1,0 +1,95 @@
+"""Row 61's final selection rule: which model serves the scored final.
+
+The live leaderboard splits every arm's conversion into cold requests (new shoppers) and warm requests.
+An arm can be best on one and not the other, so at 07:00 we may combine two arms: `cold_first(A, B)`
+answers cold requests with A and the rest with B. `choose` picks the best such pair from the night's
+numbers; `confirm` checks the pick on fresh data against the arm that has led all night.
+"""
+
+from dataclasses import dataclass
+from itertools import product
+
+
+@dataclass(frozen=True)
+class ArmResult:
+    """One live arm's numbers over a window, from the leaderboard (`by=model`). Conversion in %."""
+
+    name: str
+    cold_requests: int
+    cold_conversion: float
+    warm_requests: int
+    warm_conversion: float
+
+
+@dataclass(frozen=True)
+class Choice:
+    """The arm that answers cold requests and the arm that answers the rest (the same arm if one wins
+    both), with the conversion the night's numbers expect from it."""
+
+    cold_arm: str
+    warm_arm: str
+    expected_conversion: float
+
+
+def choose(arms: list[ArmResult]) -> Choice:
+    """Score every pair (cold arm, warm arm), a single arm being the pair with itself, as
+    cold share x the cold arm's cold conversion + warm share x the warm arm's warm conversion,
+    with the cold share pooled over all arms, and return the best."""
+    cold = sum(a.cold_requests for a in arms)
+    cold_share = cold / (cold + sum(a.warm_requests for a in arms))
+    return max(
+        (
+            Choice(
+                c.name,
+                w.name,
+                cold_share * c.cold_conversion + (1 - cold_share) * w.warm_conversion,
+            )
+            for c, w in product(arms, arms)
+        ),
+        key=lambda choice: choice.expected_conversion,
+    )
+
+
+MIN_LEAD = 0.10
+"""Row 61: the choice must convert at least this much more than Titan+ over the 2 h of confirmation."""
+MIN_WINDOWS_WON = 3
+"""Row 61: and convert more than Titan+ in at least this many of the four paired 30-min windows."""
+
+
+def confirm(
+    choice: float, titan_plus: float, windows: list[tuple[float, float]]
+) -> bool:
+    """Whether the 07:00 choice replaces Titan+ in the final: conversion over the whole confirmation for
+    each, and (choice, Titan+) conversion for each paired window. A tied window is not won."""
+    lead = round(choice - titan_plus, 6)
+    won = sum(c > t for c, t in windows)
+    return lead >= MIN_LEAD and won >= MIN_WINDOWS_WON
+
+
+def arm_results(versions: list[dict]) -> list[ArmResult]:
+    """Our arms from our team's `versions` in the leaderboard (`by=model`), one row per arm and read,
+    added up per arm. The leaderboard gives all requests and the cold ones; the warm numbers are what
+    remains. Conversion is purchases per 100 requests, so purchases add up across reads."""
+    totals: dict[
+        str, list[float]
+    ] = {}  # name -> [cold requests, cold purchases, requests, purchases]
+    for row in versions:
+        cold = row.get("cold_requests") or 0
+        t = totals.setdefault(row["model_version"], [0, 0.0, 0, 0.0])
+        t[0] += cold
+        t[1] += (row.get("cold_conversion") or 0.0) * cold
+        t[2] += row["requests"]
+        t[3] += row["conversion"] * row["requests"]
+    arms = []
+    for name, (cold, cold_purchases, requests, purchases) in totals.items():
+        warm = requests - cold
+        arms.append(
+            ArmResult(
+                name,
+                cold_requests=cold,
+                cold_conversion=cold_purchases / cold if cold else 0.0,
+                warm_requests=warm,
+                warm_conversion=(purchases - cold_purchases) / warm if warm else 0.0,
+            )
+        )
+    return arms
