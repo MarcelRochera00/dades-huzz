@@ -292,6 +292,30 @@ def test_a_cold_shopper_always_sees_what_they_carted_first():
     ]
 
 
+def test_a_cold_shopper_with_a_long_cart_still_gets_ten_products():
+    carts = [f"z_{i}" for i in range(12)] + [f"e_{i}" for i in range(12)]
+    recommend = _cold_recommend({"e_v": "electronics"})
+    state = _cold_state({}, extra={"e_v", *carts})
+    category = {p: "garden" if p[0] == "z" else "electronics" for p in carts}
+    state = State(
+        **{
+            **vars(state),
+            "category": category,
+            "shopper_carted": {"u1": frozenset(carts)},
+        }
+    )
+    for views in ([], ["e_v"]):
+        request = {
+            "user_id": "u1",
+            "is_new_user": True,
+            "recent_views": [{"product_id": p} for p in views],
+            "context": {"device": "web"},
+        }
+        answer = recommend(request, state)
+        assert len(answer) == 10, views
+        assert len(set(answer)) == 10, views
+
+
 def test_a_returning_shopper_who_views_a_new_product_is_cold_too():
     recommend = _cold_recommend({})
     state = _cold_state({"n_1": 5, "hot": 9}, extra={"n_new"}, new_products={"n_new"})

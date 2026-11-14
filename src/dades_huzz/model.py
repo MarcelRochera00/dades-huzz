@@ -262,7 +262,8 @@ def cold_start_answer(
 
     def add(product_id: str) -> None:
         if (
-            product_id in state.available
+            len(answer) < ANSWER_SIZE
+            and product_id in state.available
             and product_id not in bought
             and product_id not in answer
         ):
