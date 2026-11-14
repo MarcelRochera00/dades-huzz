@@ -742,6 +742,40 @@ def test_lauri_colossus_brings_in_and_ranks_the_shoppers_day():
     )(request, state)
 
 
+def test_lauri_titan_plus_brings_in_the_shoppers_unbought_history_carts():
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    state = _lauri_state(
+        available=frozenset(products) | {"c_cart", "c_bought"},
+        category={p: p[0] for p in [*products, "c_cart", "c_bought"]},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    carts = {"u": ("c_bought", "c_cart")}
+    recommend = _lauri(
+        {"history_carted": 5.0}, carts=carts, bought={"u": frozenset({"c_bought"})}
+    )
+    answer = recommend(request, state)
+    assert answer[0] == "c_cart"
+    assert "c_bought" not in answer
+    # without carts, the cart never reaches the pool
+    assert "c_cart" not in _lauri({"history_carted": 5.0})(request, state)
+
+
+def test_lauri_takes_deeper_into_each_category_with_a_larger_cap():
+    deep = [f"a_{i}" for i in range(40)]
+    state = _lauri_state(
+        available=frozenset(deep), category=dict.fromkeys(deep, "a"), fallback=()
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    signals = {
+        "ranked_by_category": {"a": deep},
+        "history_sales": {"a_35": 99},
+        "profiles": {"u": {"a": 1.0}},
+    }
+    weights = {"log_history_sales": 1.0}
+    assert "a_35" not in _lauri(weights, **signals)(request, state)
+    assert _lauri(weights, per_category=100, **signals)(request, state)[0] == "a_35"
+
+
 def test_lauri_titan_ignores_the_day_and_keeps_its_thirteen_weights():
     from dades_huzz.model import lauri
 
@@ -768,6 +802,7 @@ def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
     import numpy as np
 
     from dades_huzz.features import (
+        LAURI_CART_FEATURES,
         LAURI_DAY_FEATURES,
         LAURI_FEATURES,
         LauriTrainingRows,
@@ -777,7 +812,8 @@ def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
     rng = np.random.default_rng(1)
     n = 2000
     features = rng.random((n * 10, len(LAURI_FEATURES)))
-    chance = 1 / (1 + np.exp(-(-2.0 + 2.0 * features[:, -3])))  # day_carted matters
+    carted = LAURI_FEATURES.index("day_carted")
+    chance = 1 / (1 + np.exp(-(-2.0 + 2.0 * features[:, carted])))  # day_carted matters
     rows = LauriTrainingRows(
         features=features,
         slot=np.tile(np.arange(10), n),
@@ -789,14 +825,17 @@ def test_fit_lauri_on_some_features_leaves_the_others_at_zero():
         is_new_user=np.repeat(rng.random(n) < 0.5, 10),
     )
     everything = np.ones(n * 10, dtype=bool)
-    titan = [f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES]
+    titan = [
+        f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES + LAURI_CART_FEATURES
+    ]
     without = fit_lauri(rows, everything, rows.purchased, l2=1.0, features=titan)
     full = fit_lauri(rows, everything, rows.purchased, l2=1.0)
     for segment in ("new", "returning"):
         assert len(without[segment]["weights"]) == len(LAURI_FEATURES)
-        assert without[segment]["weights"][-4:] == [0.0] * 4
+        for name in LAURI_DAY_FEATURES:
+            assert without[segment]["weights"][LAURI_FEATURES.index(name)] == 0.0
         assert len(without[segment]["slot"]) == 9
-        assert 1.5 < full[segment]["weights"][-3] < 2.5
+        assert 1.5 < full[segment]["weights"][carted] < 2.5
     old = {s: {**w, "weights": w["weights"][:13]} for s, w in without.items()}
     assert np.allclose(lauri_scores(old, rows)[0], lauri_scores(without, rows)[0])
 
@@ -866,3 +905,24 @@ def test_new_shoppers_and_shoppers_without_carts_keep_the_base_answer():
     base = _terminator_like({}, _cart_state())
     assert recommend({"user_id": "u_1", "is_new_user": True}, _cart_state()) == base
     assert recommend({"user_id": "u_2", "is_new_user": False}, _cart_state()) == base
+
+
+def test_cold_first_sends_cold_requests_to_the_cold_answer_and_the_rest_to_the_base():
+    from dataclasses import replace
+
+    from dades_huzz.model import cold_first
+
+    def base(request, state):
+        return ["base"]
+
+    def cold(request, state):
+        return ["cold"]
+
+    recommend = cold_first(base, cold)
+    state = replace(_lauri_state(), new_products=frozenset({"a_new"}))
+    returning = {"user_id": "u", "is_new_user": False, "recent_views": []}
+    assert recommend({**returning, "is_new_user": True}, state) == ["cold"]
+    assert recommend(
+        {**returning, "recent_views": [{"product_id": "a_new"}]}, state
+    ) == ["cold"]
+    assert recommend(returning, state) == ["base"]

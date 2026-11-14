@@ -475,6 +475,24 @@ CART_TOP = 3
 4-10 (docs/experiments.md row 46)."""
 
 
+def is_cold(request: Record, state: State) -> bool:
+    """A cold request: a new shopper, or a view of a product the history does not know."""
+    return bool(request.get("is_new_user")) or any(
+        view["product_id"] in state.new_products
+        for view in request.get("recent_views") or []
+    )
+
+
+def cold_first(base: Recommend, cold: Recommend) -> Recommend:
+    """Cold requests (`is_cold`) get `cold`'s answer, every other request `base`'s. Lauri Titan cold60 is
+    Titan with the cold-start rule of #60 (`cold_start_answer`) for its cold requests."""
+
+    def recommend(request: Record, state: State) -> list[str]:
+        return (cold if is_cold(request, state) else base)(request, state)
+
+    return recommend
+
+
 def cart_first(
     base: Recommend,
     carts: Mapping[str, Sequence[str]],
@@ -667,6 +685,8 @@ def lauri(
     profiles: Mapping[str, Mapping[str, float]] | None = None,
     bought: Mapping[str, AbstractSet[str]] | None = None,
     day: bool = False,
+    carts: Mapping[str, Sequence[str]] | None = None,
+    per_category: int = LAURI_PER_CATEGORY,
 ) -> Recommend:
     """Lauri Titan: scores every candidate with weights learned from our own carousels and shows the ten
     most likely to be bought.
@@ -680,6 +700,9 @@ def lauri(
     With `day` (Lauri Colossus) the shopper's day so far in `State` counts too: what they carted and viewed
     today and the ranking of their three most viewed categories of the day join the candidates, and the
     day's features are scored.
+
+    With `carts` (Lauri Titan+) what each shopper carted in the history and never bought joins the candidates
+    and is scored as `history_carted`. `per_category` is how deep each category's ranking reaches.
     """
     by_segment = {
         segment: _feature_weights(weights[segment]) for segment in LAURI_SEGMENTS
@@ -726,10 +749,10 @@ def lauri(
             categories += sorted(counts, key=lambda name: (-counts[name], name))[
                 :LAURI_DAY_CATEGORIES
             ]
+        carted = (carts or {}).get(user, ())
+        pool.update(dict.fromkeys(carted))
         for name in dict.fromkeys(categories):
-            pool.update(
-                dict.fromkeys(ranked_by_category.get(name, ())[:LAURI_PER_CATEGORY])
-            )
+            pool.update(dict.fromkeys(ranked_by_category.get(name, ())[:per_category]))
         if viewed and (last := state.subcategory.get(viewed[-1])) is not None:
             same = (
                 p
@@ -750,7 +773,9 @@ def lauri(
         )
         segment = "new" if request.get("is_new_user") else "returning"
         scores = (
-            lauri_features(candidates, viewed, profile, signals, today)
+            lauri_features(
+                candidates, viewed, profile, signals, today, frozenset(carted)
+            )
             @ by_segment[segment]
         )
         best = [candidates[i] for i in np.argsort(-scores, kind="stable")[:ANSWER_SIZE]]

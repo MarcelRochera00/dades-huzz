@@ -106,6 +106,9 @@ more than add-to-carts, which count more than views). _Avoid_: user embedding, u
 they viewed, what they carted and have not bought, and the products they viewed. It reaches further back than
 the request's recent views. _Avoid_: session (a day holds several), today's profile.
 
+**History cart**: a product a returning shopper added to the cart in the store's history and never bought.
+Unlike the day's cart, it comes from before the live stream. _Avoid_: abandoned cart, wishlist.
+
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.
 
