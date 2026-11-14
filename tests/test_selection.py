@@ -1,6 +1,13 @@
 import pytest
 
-from dades_huzz.evaluation.selection import ArmResult, arm_results, choose, confirm
+from dades_huzz.evaluation.selection import (
+    ArmResult,
+    arm_results,
+    choose,
+    confirm,
+    live_arms,
+    paired_windows,
+)
 
 
 def test_choose_picks_the_cold_and_the_warm_arm_separately():
@@ -91,3 +98,50 @@ def test_arm_results_add_up_one_arm_over_several_windows():
         warm_requests=1000,
         warm_conversion=1.0,
     )
+
+
+def test_only_arms_still_serving_in_the_last_read_are_candidates():
+    early = {
+        "A": {
+            "model_version": "A",
+            "requests": 10,
+            "conversion": 9.0,
+            "cold_requests": 5,
+            "cold_conversion": 20.0,
+        },
+        "B": {
+            "model_version": "B",
+            "requests": 100,
+            "conversion": 1.0,
+            "cold_requests": 40,
+            "cold_conversion": 1.0,
+        },
+    }
+    late = {
+        "B": {
+            "model_version": "B",
+            "requests": 100,
+            "conversion": 1.0,
+            "cold_requests": 40,
+            "cold_conversion": 1.0,
+        }
+    }
+    assert [a.name for a in live_arms([early, late])] == ["B"]
+
+
+def test_paired_windows_keep_each_window_with_its_own_numbers_and_miss_none():
+    rows = [
+        {"C": {"conversion": 2.0}, "T": {"conversion": 1.0}},
+        {"T": {"conversion": 1.5}},  # the choice did not serve in this window
+        {"C": {"conversion": 3.0}, "T": {"conversion": 1.0}},
+    ]
+    assert paired_windows(rows, choice="C", titan_plus="T") == [
+        (2.0, 1.0),
+        (0.0, 1.5),
+        (3.0, 1.0),
+    ]
+
+
+def test_confirm_refuses_fewer_than_four_windows():
+    with pytest.raises(ValueError):
+        confirm(choice=2.5, titan_plus=2.0, windows=[(2.5, 2.0)] * 3)

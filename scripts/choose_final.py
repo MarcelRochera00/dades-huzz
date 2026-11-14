@@ -4,6 +4,8 @@
     uv run python scripts/choose_final.py confirm --choice NAME     # 09:15: NAME vs Titan+, 07:15-09:15 CET
 
 Times are CET on the day the command runs; --start/--end (HH:MM, CET) override them. Reads TEAM_ID from .env.
+If 07:00 chooses a pair (cold requests to one arm, the rest to another), it serves as one new version
+wrapping `cold_first(A, B)`; pass that version's name as --choice.
 """
 
 import argparse
@@ -18,9 +20,11 @@ from dades_huzz.data import RawTree
 from dades_huzz.evaluation.selection import (
     MIN_LEAD,
     MIN_WINDOWS_WON,
-    arm_results,
+    WINDOWS,
     choose,
     confirm,
+    live_arms,
+    paired_windows,
 )
 
 CET = timezone(timedelta(hours=1))
@@ -62,7 +66,7 @@ def main() -> None:
         f"Leaderboard by=model, team {team}, {clock(windows[0][0])}-{clock(windows[-1][1])} CET "
         f"in {len(windows)} reads"
     )
-    arms = arm_results([row for rows in per_window for row in rows.values()])
+    arms = live_arms(per_window)
     print(f"\n{'arm':<28}{'cold req':>9}{'cold':>7}{'warm req':>9}{'warm':>7}")
     for a in sorted(arms, key=lambda a: a.name):
         print(
@@ -87,24 +91,16 @@ def main() -> None:
     by_name = {a.name: a for a in arms}
     for name in (args.choice, TITAN_PLUS):
         if name not in by_name:
-            raise SystemExit(f"{name} has no requests in this window.")
-
-    def total(name: str) -> float:
-        a = by_name[name]
-        requests = a.cold_requests + a.warm_requests
-        return (
-            a.cold_conversion * a.cold_requests + a.warm_conversion * a.warm_requests
-        ) / requests
-
-    paired = [
-        (rows[args.choice]["conversion"], rows[TITAN_PLUS]["conversion"])
-        for rows in per_window
-        if args.choice in rows and TITAN_PLUS in rows
-    ]
+            raise SystemExit(f"{name} is not serving in the last window.")
+    paired = paired_windows(per_window, args.choice, TITAN_PLUS)
     print(f"\n{'window':<14}{args.choice:>28}{TITAN_PLUS:>20}")
-    for (first, last), (c, t) in zip(windows, paired, strict=False):
+    for (first, last), (c, t) in zip(windows, paired, strict=True):
         print(f"{clock(first)}-{clock(last):<8}{c:>28.2f}{t:>20.2f}")
-    choice, titan = total(args.choice), total(TITAN_PLUS)
+    if len(paired) != WINDOWS:
+        raise SystemExit(
+            f"Row 61 confirms on {WINDOWS} windows of 30 min; this range gives {len(paired)}."
+        )
+    choice, titan = by_name[args.choice].conversion, by_name[TITAN_PLUS].conversion
     won = sum(c > t for c, t in paired)
     print(
         f"\nWhole window: {args.choice} {choice:.2f}, {TITAN_PLUS} {titan:.2f}, lead {choice - titan:+.2f} "

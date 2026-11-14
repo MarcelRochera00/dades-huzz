@@ -20,6 +20,15 @@ class ArmResult:
     warm_requests: int
     warm_conversion: float
 
+    @property
+    def conversion(self) -> float:
+        """Over all its requests, cold and warm."""
+        requests = self.cold_requests + self.warm_requests
+        return (
+            self.cold_conversion * self.cold_requests
+            + self.warm_conversion * self.warm_requests
+        ) / requests
+
 
 @dataclass(frozen=True)
 class Choice:
@@ -54,13 +63,20 @@ MIN_LEAD = 0.10
 """Row 61: the choice must convert at least this much more than Titan+ over the 2 h of confirmation."""
 MIN_WINDOWS_WON = 3
 """Row 61: and convert more than Titan+ in at least this many of the four paired 30-min windows."""
+WINDOWS = 4
+"""Row 61: the 2 h of confirmation are read as four paired 30-min windows."""
 
 
 def confirm(
     choice: float, titan_plus: float, windows: list[tuple[float, float]]
 ) -> bool:
     """Whether the 07:00 choice replaces Titan+ in the final: conversion over the whole confirmation for
-    each, and (choice, Titan+) conversion for each paired window. A tied window is not won."""
+    each, and (choice, Titan+) conversion for each paired window. A tied window is not won. Fewer than
+    four windows is an error, not a smaller bar."""
+    if len(windows) != WINDOWS:
+        raise ValueError(
+            f"row 61 confirms on {WINDOWS} paired windows, got {len(windows)}"
+        )
     lead = round(choice - titan_plus, 6)
     won = sum(c > t for c, t in windows)
     return lead >= MIN_LEAD and won >= MIN_WINDOWS_WON
@@ -93,3 +109,28 @@ def arm_results(versions: list[dict]) -> list[ArmResult]:
             )
         )
     return arms
+
+
+def live_arms(reads: list[dict[str, dict]]) -> list[ArmResult]:
+    """`arm_results` over all reads (each read: model_version -> leaderboard row, oldest first), keeping
+    only the arms still serving in the last read: an arm retired during the night is not a candidate."""
+    serving = set(reads[-1])
+    return [
+        a
+        for a in arm_results([row for read in reads for row in read.values()])
+        if a.name in serving
+    ]
+
+
+def paired_windows(
+    reads: list[dict[str, dict]], choice: str, titan_plus: str
+) -> list[tuple[float, float]]:
+    """(choice, Titan+) conversion in each read, in order. An arm with no row in a window converted
+    nothing there, so a window the choice did not serve counts as lost, never as skipped."""
+    return [
+        (
+            read[choice]["conversion"] if choice in read else 0.0,
+            read[titan_plus]["conversion"] if titan_plus in read else 0.0,
+        )
+        for read in reads
+    ]
