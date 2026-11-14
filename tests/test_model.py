@@ -573,3 +573,50 @@ def test_lauri_never_pads_with_an_unavailable_product():
     state = _lauri_state(available=available)
     answer = _lauri()({"request_id": "r", "user_id": "u", "recent_views": []}, state)
     assert set(answer) <= available
+
+
+def test_todays_views_count_as_a_profile_for_a_shopper_without_history():
+    from dataclasses import replace
+
+    from dades_huzz.model import category_best_sellers
+
+    # Tati Omega+: a new shopper has no history, but #54's State counts the categories they viewed today
+    # (an add-to-cart counts 3): those join the category viewed last like a history profile
+    kwargs = {
+        "category_of": {"v_last": "electronics"},
+        "ranked_by_category": {"electronics": ["e_1", "e_2"], "toys": ["t_1", "t_2"]},
+        "keep_viewed": True,
+    }
+    state = replace(
+        _state(extra={"e_1", "e_2", "t_1", "t_2", "v_last"}),
+        shopper_categories={"u_new": {"toys": 3, "electronics": 1}},
+    )
+    request = {"user_id": "u_new", "recent_views": [{"product_id": "v_last"}]}
+    # today's shares: toys 0.75, electronics 0.25; at w = 3, toys 2.25 and electronics 1 + 0.75 = 1.75
+    answer = category_best_sellers(**kwargs, day_weight=3.0)(request, state)
+    assert answer[:4] == ["t_1", "e_1", "t_2", "e_2"]
+    # without day_weight, exactly Terminator
+    assert category_best_sellers(**kwargs)(request, state)[:3] == ["e_1", "e_2", "p_00"]
+
+
+def test_todays_views_add_to_the_history_profile():
+    from dataclasses import replace
+
+    from dades_huzz.model import category_best_sellers
+
+    recommend = category_best_sellers(
+        category_of={},
+        ranked_by_category={"toys": ["t_1"], "books": ["b_1"]},
+        keep_viewed=True,
+        profiles={"u_1": {"toys": 1.0}},
+        profile_weight=1.0,
+        day_weight=3.0,
+    )
+    state = replace(
+        _state(extra={"t_1", "b_1"}), shopper_categories={"u_1": {"books": 2}}
+    )
+    # toys 1 (history), books 3 (today): books first
+    assert recommend({"user_id": "u_1", "recent_views": []}, state)[:2] == [
+        "b_1",
+        "t_1",
+    ]
