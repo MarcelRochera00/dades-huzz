@@ -233,3 +233,36 @@ def test_shopper_purchases_are_each_shoppers_bought_products():
     assert shopper_purchases(PurchasesRawTree(), until="2026-11-14 12:00:00") == {
         "u_1": frozenset({"p_a", "p_b"})
     }
+
+
+def test_lauri_features_describe_a_candidate_for_this_shopper():
+    import math
+
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys", "p3": "books"},
+        subcategory={"p1": "lego", "p2": "dolls", "p3": "novels"},
+        price={"p1": 20.0, "p2": 10.0, "p3": 5.0},
+        history_sales={"p2": 9},
+        live_sales={"p3": 3},
+        median_log_price={"toys": math.log(10.0), "books": math.log(5.0)},
+    )
+    rows = lauri_features(
+        ["p1", "p2", "p3", "unknown"],
+        ["p3", "p1"],
+        {"books": 0.8, "toys": 0.2},
+        signals,
+    )
+    by_name = [dict(zip(LAURI_FEATURES, row, strict=True)) for row in rows]
+    assert by_name[0]["viewed"] == 1 and by_name[0]["view_recency"] == 1
+    assert by_name[2]["viewed"] == 1 and by_name[2]["view_recency"] == 0.5
+    assert by_name[1]["viewed"] == 0
+    assert by_name[1]["same_category"] == 1 and by_name[1]["same_subcategory"] == 0
+    assert by_name[0]["same_subcategory"] == 1
+    assert by_name[1]["session_category_share"] == 0.5
+    assert by_name[2]["profile_share"] == 0.8 and by_name[2]["favourite_category"] == 1
+    assert by_name[1]["log_history_sales"] == math.log(10)
+    assert by_name[2]["log_live_sales"] == math.log(4)
+    assert math.isclose(by_name[0]["relative_price"], math.log(2))
+    assert not rows[3].any()

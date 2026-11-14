@@ -360,3 +360,63 @@ def evaluate(
         slate=slate_ips(answers, logged),
         answers=answers,
     )
+
+
+def log_likelihood(logit: np.ndarray, target: np.ndarray) -> float:
+    """How well `logit` explains 0/1 outcomes: higher (closer to 0) is better."""
+    return float(-(np.logaddexp(0, logit) - target * logit).sum())
+
+
+def auc(score: np.ndarray, target: np.ndarray) -> float:
+    """The chance that a bought product scores above one that was not bought (0.5: no better than chance)."""
+    positives = int(target.sum())
+    negatives = len(target) - positives
+    if not positives or not negatives:
+        return float("nan")
+    ranks = np.empty(len(score))
+    ranks[np.argsort(score, kind="stable")] = np.arange(1, len(score) + 1)
+    return float(
+        (ranks[target == 1].sum() - positives * (positives + 1) / 2)
+        / (positives * negatives)
+    )
+
+
+def carousel_report(
+    shown_logit: np.ndarray,
+    served_score: np.ndarray,
+    purchased: np.ndarray,
+    slot: np.ndarray,
+    request: np.ndarray,
+    keep: np.ndarray,
+) -> dict[str, float]:
+    """How a learned ranking does on our own carousels in `keep` (held-out rows).
+
+    `log_likelihood`: of the purchases, with the slot each product was shown in. `auc_top_slots`: within
+    slots 1-3, each on its own, so the slot cannot help. `top3` and `mrr`: in the requests with a purchase,
+    where the bought product lands when the ten shown are re-sorted by `served_score`, next to where we had
+    put it (`top3_shown`, `mrr_shown`). The re-sorting favours the order shown: the purchase happened in that
+    slot. None of this sees a product we never showed."""
+    new_rank, shown_rank = [], []
+    for i in np.unique(request[keep & (purchased == 1)]):
+        rows = request == i
+        scores, bought = served_score[rows], int(np.argmax(purchased[rows]))
+        ahead = (scores > scores[bought]).sum() + (
+            (scores == scores[bought]) & (np.arange(len(scores)) < bought)
+        ).sum()
+        new_rank.append(1 + int(ahead))
+        shown_rank.append(1 + int(slot[rows][bought]))
+    new, shown = np.array(new_rank), np.array(shown_rank)
+    aucs = [
+        auc(served_score[keep & (slot == k)], purchased[keep & (slot == k)])
+        for k in range(3)
+    ]
+    return {
+        "requests": len(np.unique(request[keep])),
+        "purchases": len(new),
+        "log_likelihood": log_likelihood(shown_logit[keep], purchased[keep]),
+        "auc_top_slots": float(np.nanmean(aucs)),
+        "top3": float((new <= 3).mean()),
+        "top3_shown": float((shown <= 3).mean()),
+        "mrr": float((1 / new).mean()),
+        "mrr_shown": float((1 / shown).mean()),
+    }
