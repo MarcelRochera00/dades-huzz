@@ -104,3 +104,47 @@ def category_best_sellers(
         return answer
 
     return recommend
+
+
+SUBCATEGORY_TOP = 2
+"""Live, a new shopper with views bought an unviewed product of the subcategory viewed last 0.88 % of the time
+in slots 1-2 against 0.32 % for another subcategory of the same category; slot 3 showed no effect
+(docs/experiments.md row 35)."""
+
+
+def subcategory_first(
+    base: Recommend,
+    ranked_by_category: Mapping[str, Sequence[str]],
+    category_of: Mapping[str, str] | None = None,
+    top: int = SUBCATEGORY_TOP,
+) -> Recommend:
+    """For a new shopper with views: the `top` best sellers of the subcategory they viewed last (not viewed,
+    available) go first, then `base`'s answer without them. Everyone else gets `base`'s answer unchanged.
+
+    The subcategory's order comes from its category's list in `ranked_by_category` (live with #38's
+    ranking), each product's subcategory from the live `state.subcategory`."""
+
+    def recommend(request: Record, state: State) -> list[str]:
+        answer = base(request, state)
+        viewed = [view["product_id"] for view in request.get("recent_views") or []]
+        if not request.get("is_new_user") or not viewed:
+            return answer
+        last = viewed[-1]
+        category = state.category.get(last) or (category_of or {}).get(last)
+        subcategory = state.subcategory.get(last)
+        if not category or not subcategory:
+            return answer
+        picks: list[str] = []
+        for product_id in ranked_by_category.get(category, ()):
+            if len(picks) == top:
+                break
+            if (
+                product_id not in viewed
+                and product_id in state.available
+                and state.subcategory.get(product_id) == subcategory
+            ):
+                picks.append(product_id)
+        rest = [product_id for product_id in answer if product_id not in picks]
+        return (picks + rest)[:ANSWER_SIZE]
+
+    return recommend

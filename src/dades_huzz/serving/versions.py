@@ -29,7 +29,7 @@ from dades_huzz.features import (
     shopper_profiles,
     shopper_purchases,
 )
-from dades_huzz.model import best_sellers, category_best_sellers
+from dades_huzz.model import best_sellers, category_best_sellers, subcategory_first
 from dades_huzz.serving.loop import Recommend
 
 
@@ -44,6 +44,17 @@ def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
         viewed_first=viewed_first,
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
+    )
+
+
+def _subcategory_first_live(rawtree: RawTree) -> Recommend:
+    """Terminator with the live category ranking (#38), and for a new shopper with views the two best sellers
+    of the subcategory they viewed last on top."""
+    signals = live_category_signals(rawtree)
+    return subcategory_first(
+        category_best_sellers(**vars(signals), keep_viewed=True),
+        signals.ranked_by_category,
+        signals.category_of,
     )
 
 
@@ -70,6 +81,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
         **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
+    "tati-terminator-live-subcat": lambda rawtree: _subcategory_first_live(rawtree),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
