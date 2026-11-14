@@ -110,6 +110,10 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#00a6a6",
         "Lauri Omni's weights alone, 30 deep: no cold rule, no trending subcategory, no pool 100.",
     ),
+    "lauri-titan-plus-als": VersionStyle(
+        "#d81b60",
+        "Titan+ plus each returning shopper's 20 best-liked products from the history (ALS), 30 deep, no extra layers.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 

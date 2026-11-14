@@ -240,6 +240,12 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "lauri-titan-als": lambda rawtree: _titan_max(
         rawtree, "lauri-titan-als", taste=True
     ),
+    # Titan+ plus each returning shopper's ALS taste, 30 deep, without tournament 4's losing layers
+    # (docs/experiments.md row 61): the ALS candidates' first live test. It reads the weights stored as
+    # lauri-titan-als: retraining them changes both versions.
+    "lauri-titan-plus-als": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-als", history_carts=True, taste=True
+    ),
     "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
     # Omni's weights alone (the ones stored as lauri-omni: retraining Omni changes both), 30 deep, without the
     # cold rule, the trending subcategory and pool 100 (tournament 4's live read, docs/experiments.md row 60).
