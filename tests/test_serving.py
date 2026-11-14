@@ -358,3 +358,4 @@ def test_lauri_omni_is_a_live_version():
     from dades_huzz.serving.versions import VERSIONS
 
     assert "lauri-omni" in VERSIONS
+    assert "lauri-omni-plain" in VERSIONS
