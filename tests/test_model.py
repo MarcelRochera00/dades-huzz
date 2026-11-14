@@ -212,19 +212,35 @@ def test_a_blank_shopper_gives_the_leading_category_its_slots_first():
         assert len(set(answer)) == 10
 
 
-def test_a_blank_shopper_sees_a_hot_subcategory_first_in_its_category_block():
-    # comics sells 4.5x its day share: b1 opens the books block, ahead of the trend
+def test_a_blank_shopper_without_a_leader_sees_the_hot_subcategories_before_the_device_split():
+    # no category leads; comics sells 2.5x its day share: b1 comes first, then 9 slots by what android buys
     state = _blank_profile_state()
     state = State(
         **{
             **vars(state),
             "recent_purchases": _sold(b=4, t=4),
             "subcategory": {"b1": "Comics"},
-            "hot_subcategories": {"Comics": 4.5},
+            "hot_subcategories": {"Comics": 2.5},
         }
     )
     answer = _cold_recommend({})(_blank_request("android"), state)
-    assert answer == ["b1", "b4", "t4", "b3", "b2", "t3", "t2", "p_00", "p_01", "p_02"]
+    assert answer == ["b1", "b4", "b3", "t4", "b2", "t3", "t2", "p_00", "p_01", "p_02"]
+
+
+def test_a_blank_shopper_sees_the_leaders_hot_products_first_then_every_other_hot_one():
+    # toys lead (5 slots) and plush is hot: t2 opens the toys block. Then comics (2.5x, from #64's 2x) fills
+    # the next slots before the device split. Android leaves out the dearest fifth (b5, t5)
+    state = _blank_profile_state()
+    state = State(
+        **{
+            **vars(state),
+            "recent_purchases": _sold(t=7, b=3),
+            "subcategory": {"t2": "Plush", "b1": "Comics", "b2": "Comics"},
+            "hot_subcategories": {"Plush": 3.0, "Comics": 2.5},
+        }
+    )
+    answer = _cold_recommend({})(_blank_request("android"), state)
+    assert answer == ["t2", "t4", "t3", "b2", "b1", "b4", "b3", "p_00", "p_01", "p_02"]
 
 
 def test_a_cold_block_puts_the_hottest_subcategory_first_and_skips_ones_under_4x():
@@ -343,7 +359,34 @@ def test_a_returning_shopper_who_views_a_new_product_is_cold_too():
     state = _cold_state({"n_1": 5, "hot": 9}, extra={"n_new"}, new_products={"n_new"})
     state = State(**{**vars(state), "category": {"n_new": "toys", "n_1": "toys"}})
     request = {"is_new_user": False, "recent_views": [{"product_id": "n_new"}]}
-    assert recommend(request, state)[:3] == ["n_new", "n_1", "hot"]
+    assert recommend(request, state)[:2] == ["n_1", "hot"]
+
+
+def test_a_cold_returning_shopper_never_sees_what_they_viewed_and_did_not_buy_but_keeps_carts():
+    # returning shoppers do not buy what they looked at and left (0.4-0.5x the average shown product, #5);
+    # carts sell (5.4x), so a carted product stays even if it was viewed
+    recommend = _cold_recommend({})
+    trend = {"n_1": 5, "n_2": 4, "hot": 9}
+    state = _cold_state(trend, extra={"n_new", "n_old", "n_day", "n_cart"})
+    category = {p: "toys" for p in (*trend, "n_new", "n_old", "n_day", "n_cart")}
+    state = State(
+        **{
+            **vars(state),
+            "new_products": frozenset({"n_new"}),
+            "category": category,
+            "shopper_viewed": {"u1": ("n_day", "n_cart")},
+            "shopper_carted": {"u1": frozenset({"n_cart"})},
+        }
+    )
+    views = ["n_old", "n_new"]
+    request = {
+        "user_id": "u1",
+        "is_new_user": False,
+        "recent_views": [{"product_id": p} for p in views],
+    }
+    answer = recommend(request, state)
+    assert answer[:4] == ["n_cart", "hot", "n_1", "n_2"]
+    assert not {"n_new", "n_old", "n_day"} & set(answer)
 
 
 def test_a_cold_answer_leaves_out_what_the_shopper_bought_in_the_history():
