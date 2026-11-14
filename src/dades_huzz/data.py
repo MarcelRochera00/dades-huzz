@@ -1,0 +1,194 @@
+"""Reading and writing RawTree: the live stream, the current catalogue and our answers."""
+
+import os
+import time
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import requests
+
+Record = dict[str, Any]
+"""RawTree returns rows as JSON objects: {"column": value, ...}"""
+
+
+@dataclass(frozen=True)
+class State:
+    """What the serving loop keeps fresh and passes, read-only, to every `recommend` (docs/contracts.md).
+
+    The catalogue right now is shop.catalog with every shop.catalog_updates record applied in time order.
+    """
+
+    available: frozenset[str]
+    """Products an answer may contain: active and not out of stock."""
+    price: dict[str, float]
+    new_products: frozenset[str]
+    """Products added during the event: a request that viewed one is a cold request."""
+    fallback: tuple[str, ...]
+    """The all-time best sellers that are available, best first: the baseline, and what pads a short answer."""
+
+
+def current_state(
+    catalog: Iterable[Record], updates: Iterable[Record], best_sellers: Iterable[str]
+) -> State:
+    active: dict[str, bool] = {}
+    price: dict[str, float] = {}
+    out_of_stock: set[str] = set()
+    new: set[str] = set()
+    for row in catalog:
+        active[row["product_id"]] = bool(row["is_active"])
+        price[row["product_id"]] = float(row["price_eur"])
+    for row in sorted(updates, key=lambda r: str(r["ts"])):
+        product = row["product_id"]
+        active[product] = bool(row["is_active"])
+        price[product] = float(row["price_eur"])
+        if row["change"] == "out_of_stock":
+            out_of_stock.add(product)
+        elif row["change"] == "back_in_stock":
+            out_of_stock.discard(product)
+        elif row["change"] == "new_product":
+            new.add(product)
+    available = frozenset(
+        p for p, is_active in active.items() if is_active and p not in out_of_stock
+    )
+    fallback = tuple(p for p in best_sellers if p in available)
+    return State(available, price, frozenset(new), fallback)
+
+
+def as_request(row: Record) -> Record:
+    """A shop.requests row in the contract's shape: `context` nested, as the brief shows it.
+
+    RawTree returns the context as flat `context.device`-style columns; `ts_ms` is added for the deadline.
+    """
+    return {
+        "request_id": row["request_id"],
+        "ts": row["ts"],
+        "ts_ms": row["ts_ms"],
+        "user_id": row["user_id"],
+        "is_new_user": row["is_new_user"],
+        "context": {
+            "device": row["device"],
+            "region": row["region"],
+            "page": row["page"],
+        },
+        "recent_views": row["recent_views"] or [],
+    }
+
+
+class RequestCursor:
+    """Which polled requests are new and still answerable in time.
+
+    Every poll asks for all requests younger than `max_age_ms`, so one that lands in the table late or out of
+    order is still seen; the cursor remembers what it already returned so each request is answered once.
+    """
+
+    def __init__(self, max_age_ms: int) -> None:
+        self.max_age_ms = max_age_ms
+        self.skipped = 0
+        """Requests seen too late to answer in time."""
+        self._seen: dict[str, int] = {}
+
+    def since_ms(self, now_ms: int) -> int:
+        return now_ms - self.max_age_ms
+
+    def accept(self, rows: Iterable[Record], now_ms: int) -> list[Record]:
+        fresh = []
+        for row in sorted(rows, key=lambda r: r["ts_ms"]):
+            if row["request_id"] in self._seen:
+                continue
+            self._seen[row["request_id"]] = row["ts_ms"]
+            if now_ms - row["ts_ms"] > self.max_age_ms:
+                self.skipped += 1
+            else:
+                fresh.append(row)
+        horizon = now_ms - 10 * self.max_age_ms
+        self._seen = {r: ts for r, ts in self._seen.items() if ts >= horizon}
+        return fresh
+
+
+REQUESTS_SINCE = """
+SELECT request_id::String AS request_id, toString(ts::DateTime64(3)) AS ts,
+       toUnixTimestamp64Milli(ts::DateTime64(3)) AS ts_ms,
+       user_id::String AS user_id, is_new_user::Bool AS is_new_user, `context.device`::String AS device,
+       `context.region`::String AS region, `context.page`::String AS page, recent_views
+FROM shop.requests
+WHERE ts::DateTime64(3) > fromUnixTimestamp64Milli(toInt64({since_ms}))"""
+
+CATALOG = """
+SELECT product_id::String AS product_id, price_eur::Float64 AS price_eur, is_active::Bool AS is_active
+FROM shop.catalog"""
+
+CATALOG_UPDATES = """
+SELECT product_id::String AS product_id, change::String AS change, toString(ts) AS ts,
+       price_eur::Float64 AS price_eur, is_active::Bool AS is_active
+FROM shop.catalog_updates"""
+
+BEST_SELLERS = """
+SELECT product_id::String AS product_id, count() AS n
+FROM shop.history_events
+WHERE event_type = 'purchase'
+GROUP BY product_id
+ORDER BY n DESC, product_id DESC"""
+"""Every product ever bought in the history, best-selling first: the organisers' baseline ranking."""
+
+
+class RawTree:
+    """The RawTree HTTP API for one team: read anything the key can see, write into our own database."""
+
+    def __init__(
+        self, team: str, api_key: str, url: str = "https://api.rawtree.com"
+    ) -> None:
+        self.team = team
+        self.url = url
+        self.http = requests.Session()
+        self.http.headers["Authorization"] = f"Bearer {api_key}"
+
+    @classmethod
+    def from_env(cls, env_file: Path = Path(".env")) -> "RawTree":
+        """Credentials from the environment, or from `.env` (never committed)."""
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+        return cls(
+            os.environ["TEAM_ID"],
+            os.environ["RAWTREE_API_KEY"],
+            os.environ.get("RAWTREE_API_URL", "https://api.rawtree.com"),
+        )
+
+    def query(self, sql: str, timeout: float = 10) -> list[Record]:
+        response = self.http.post(
+            f"{self.url}/v1/query", json={"sql": sql}, timeout=timeout
+        )
+        response.raise_for_status()
+        return response.json()["data"]
+
+    def insert(self, table: str, rows: list[Record], timeout: float = 2) -> None:
+        """Insert into our own database. Retried only when rate limited: the rows were then surely not written,
+        while retrying after a timeout could answer the same request twice."""
+        for attempt in range(2):
+            response = self.http.post(
+                f"{self.url}/v1/tables/{table}",
+                params={"database": self.team},
+                json=rows,
+                timeout=timeout,
+            )
+            if response.status_code == 429 and attempt == 0:
+                time.sleep(min(float(response.headers.get("retry-after", 0.2)), 0.5))
+                continue
+            response.raise_for_status()
+            return
+
+    def requests_since(self, since_ms: int) -> list[Record]:
+        rows = self.query(REQUESTS_SINCE.format(since_ms=int(since_ms)), timeout=2)
+        return [as_request(row) for row in rows]
+
+    def catalog(self) -> list[Record]:
+        return self.query(CATALOG)
+
+    def catalog_updates(self) -> list[Record]:
+        return self.query(CATALOG_UPDATES, timeout=5)
+
+    def best_sellers(self) -> list[str]:
+        return [row["product_id"] for row in self.query(BEST_SELLERS, timeout=30)]

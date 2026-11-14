@@ -58,3 +58,9 @@ one runs for the team at a time. _Avoid_: bot, script.
 fallback list, trends, signals.
 
 **Final round**: Sunday 10:00-12:00 CET, the only time that is scored. _Avoid_: test, evaluation.
+
+**Escaped request**: a request whose feedback is not `served_by = team`, so the shopper saw the fallback. Its
+reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request.
+
+**Unavailable product**: a product that would make an answer invalid: inactive, or whose latest stock change is
+`out_of_stock`.
