@@ -24,12 +24,20 @@ from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
 from dades_huzz.features import (
+    LiveCategoryRanking,
     category_signals,
     live_category_signals,
+    median_log_prices,
     shopper_profiles,
     shopper_purchases,
 )
-from dades_huzz.model import best_sellers, category_best_sellers, subcategory_first
+from dades_huzz.model import (
+    best_sellers,
+    category_best_sellers,
+    lauri,
+    load_lauri_weights,
+    subcategory_first,
+)
 from dades_huzz.serving.loop import Recommend
 
 
@@ -75,6 +83,27 @@ def _omega(rawtree: RawTree) -> Recommend:
     )
 
 
+def _lauri(rawtree: RawTree, name: str) -> Recommend:
+    """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
+    ranking's products with each shopper's profile, and never showing what they bought."""
+    weights = load_lauri_weights(rawtree, name)
+    until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+    ranking = LiveCategoryRanking(rawtree).start()
+    catalog = rawtree.catalog()
+    return lauri(
+        weights,
+        ranked_by_category=ranking.signals().ranked_by_category,
+        history_sales=ranking.history_sales,
+        live_sales=ranking.live_sales_now(),
+        median_log_price=median_log_prices(
+            {row["product_id"]: row["category"] for row in catalog},
+            {row["product_id"]: float(row["price_eur"]) for row in catalog},
+        ),
+        profiles=shopper_profiles(rawtree, until=until),
+        bought=shopper_purchases(rawtree, until=until),
+    )
+
+
 VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-0-bestsellers": lambda rawtree: best_sellers,
     "tati-destroyer-category": lambda rawtree: category_best_sellers(
@@ -115,6 +144,7 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
         rawtree, viewed_first=3
     ),
+    "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 

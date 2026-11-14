@@ -399,3 +399,177 @@ def test_the_subcategory_picks_skip_viewed_and_unavailable_products():
     request = {"is_new_user": True, "recent_views": [{"product_id": "v_0"}]}
     assert recommend(request, state)[:2] == ["t_3", "t_6"]
     assert len(recommend(request, state)) == 10
+
+
+def _lauri_state(**changes):
+    products = [f"a_{i}" for i in range(12)] + [f"b_{i}" for i in range(12)]
+    fields = {
+        "available": frozenset(products),
+        "price": dict.fromkeys(products, 10.0),
+        "new_products": frozenset(),
+        "fallback": tuple(products),
+        "category": {p: p[0] for p in products},
+        "subcategory": {p: p[0] for p in products},
+    }
+    return State(**{**fields, **changes})
+
+
+def _lauri(weights=None, **signals):
+    from dades_huzz.features import LAURI_FEATURES
+    from dades_huzz.model import lauri
+
+    chosen = {name: 0.0 for name in LAURI_FEATURES} | (weights or {})
+    segment = {"weights": [chosen[name] for name in LAURI_FEATURES]}
+    ranked = {
+        "a": [f"a_{i}" for i in range(12)],
+        "b": [f"b_{i}" for i in range(12)],
+    }
+    return lauri(
+        {"new": segment, "returning": segment},
+        ranked_by_category=signals.pop("ranked_by_category", ranked),
+        history_sales=signals.pop("history_sales", {}),
+        live_sales=signals.pop("live_sales", {}),
+        median_log_price={},
+        **signals,
+    )
+
+
+def test_lauri_answers_ten_distinct_available_products():
+    state = _lauri_state(available=frozenset(f"a_{i}" for i in range(11)))
+    answer = _lauri()({"request_id": "r", "user_id": "u", "recent_views": []}, state)
+    assert len(answer) == 10 == len(set(answer))
+    assert set(answer) <= state.available
+
+
+def test_lauri_ranks_by_its_weights():
+    request = {
+        "request_id": "r",
+        "user_id": "u",
+        "recent_views": [{"product_id": "b_7"}],
+    }
+    answer = _lauri({"same_category": 1.0, "viewed": 5.0})(request, _lauri_state())
+    assert answer[0] == "b_7"
+    assert all(product.startswith("b_") for product in answer)
+
+
+def test_lauri_prefers_what_sells_live_when_that_weighs():
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    answer = _lauri({"log_live_sales": 1.0}, live_sales={"b_5": 50, "a_4": 5})(
+        request, _lauri_state()
+    )
+    assert answer[:2] == ["b_5", "a_4"]
+
+
+def test_lauri_never_shows_what_the_shopper_bought_before_or_just_now():
+    state = _lauri_state(recent_purchases={"u": frozenset({"a_1"})})
+    request = {
+        "request_id": "r",
+        "user_id": "u",
+        "recent_views": [{"product_id": "a_0"}],
+    }
+    answer = _lauri({"viewed": 5.0}, bought={"u": frozenset({"a_0"})})(request, state)
+    assert "a_0" not in answer and "a_1" not in answer
+    assert len(answer) == 10
+
+
+def test_lauri_uses_the_segment_of_the_shopper():
+    from dades_huzz.features import LAURI_FEATURES
+    from dades_huzz.model import lauri
+
+    def only(name):
+        return {"weights": [float(feature == name) for feature in LAURI_FEATURES]}
+
+    recommend = lauri(
+        {"new": only("log_live_sales"), "returning": only("log_history_sales")},
+        ranked_by_category={},
+        history_sales={"a_3": 9},
+        live_sales={"b_3": 9},
+        median_log_price={},
+    )
+    request = {"request_id": "r", "user_id": "u", "recent_views": []}
+    assert recommend({**request, "is_new_user": True}, _lauri_state())[0] == "b_3"
+    assert recommend({**request, "is_new_user": False}, _lauri_state())[0] == "a_3"
+
+
+def test_lauri_answers_the_fallback_when_it_fails():
+    state = _lauri_state()
+    recommend = _lauri(ranked_by_category=None)  # reading the ranking raises
+    answer = recommend(
+        {"request_id": "r", "recent_views": [{"product_id": "a_0"}]}, state
+    )
+    assert answer == list(state.fallback[:10])
+
+
+def test_fit_lauri_keeps_the_slot_out_of_the_feature_weights():
+    import numpy as np
+
+    from dades_huzz.features import LAURI_FEATURES, LauriTrainingRows
+    from dades_huzz.model import fit_lauri, lauri_scores
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    slot = np.tile(np.arange(10), n)
+    features = np.zeros((n * 10, len(LAURI_FEATURES)))
+    features[:, 0] = rng.random(n * 10) < 0.3  # viewed: truly raises purchases
+    features[:, 7] = (
+        10 - slot + rng.normal(0, 0.5, n * 10)
+    )  # popularity: only follows the slot
+    chance = 1 / (1 + np.exp(-(-1.0 + 2.0 * features[:, 0] - 0.4 * slot)))
+    rows = LauriTrainingRows(
+        features=features,
+        slot=slot,
+        owned=np.zeros(n * 10),
+        purchased=(rng.random(n * 10) < chance).astype(float),
+        clicked=np.zeros(n * 10),
+        request=np.repeat(np.arange(n), 10),
+        ts_ms=np.zeros(n * 10),
+        is_new_user=np.repeat(rng.random(n) < 0.5, 10),
+    )
+    fitted = fit_lauri(rows, np.ones(n * 10, dtype=bool), rows.purchased, l2=1.0)
+    for segment in ("new", "returning"):
+        weights = dict(zip(LAURI_FEATURES, fitted[segment]["weights"], strict=True))
+        assert 1.5 < weights["viewed"] < 2.5
+        assert abs(weights["log_history_sales"]) < 0.2
+        assert fitted[segment]["slot"][-1] < -2
+    shown, served = lauri_scores(fitted, rows)
+    assert shown.shape == served.shape == (n * 10,)
+
+
+def test_lauri_weights_round_trip_through_the_scratch_table():
+    from dades_huzz.model import load_lauri_weights, save_lauri_weights
+
+    class FakeRawTree:
+        team = "team_xx"
+
+        def __init__(self):
+            self.rows = []
+
+        def insert(self, table, rows, timeout=2):
+            assert table == "scratch"
+            self.rows += rows
+
+        def query(self, sql, timeout=10):
+            assert "kind::String = 'lauri_weights'" in sql and "'lauri-test'" in sql
+            return [{"weights": self.rows[-1]["weights"]}] if self.rows else []
+
+    fake = FakeRawTree()
+    try:
+        load_lauri_weights(fake, "lauri-test")
+        raise AssertionError("expected LookupError")
+    except LookupError:
+        pass
+    weights = {"new": {"weights": [1.0, 2.0]}, "returning": {"weights": [3.0, 4.0]}}
+    save_lauri_weights(fake, "lauri-test", weights, ts_ms=1)
+    assert (
+        fake.rows[0]["kind"] == "lauri_weights" and fake.rows[0]["name"] == "lauri-test"
+    )
+    assert load_lauri_weights(fake, "lauri-test") == weights
+
+
+def test_lauri_never_pads_with_an_unavailable_product():
+    # Only 3 products are available, so the answer is padded from the fallback, which here still lists
+    # products that just went out of stock (the fallback and the stock refresh at different moments).
+    available = frozenset({"a_0", "a_1", "b_0"})
+    state = _lauri_state(available=available)
+    answer = _lauri()({"request_id": "r", "user_id": "u", "recent_views": []}, state)
+    assert set(answer) <= available

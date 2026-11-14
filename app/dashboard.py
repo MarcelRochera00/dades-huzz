@@ -29,7 +29,12 @@ from dades_huzz.dashboard_splits import (
     purchase_difference,
     read_split_stats,
 )
-from dades_huzz.dashboard_team import read_cold_groups, read_health, read_trends
+from dades_huzz.dashboard_team import (
+    comparison_periods,
+    read_cold_groups,
+    read_health,
+    read_trends,
+)
 from dades_huzz.data import RawTree
 
 BARCELONA = ZoneInfo("Europe/Madrid")
@@ -296,13 +301,13 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
 
 def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
     st.subheader("How often did a backup answer?")
-    tests = [period for period in reversed(periods) if len(period.shares) > 1]
+    tests = comparison_periods(periods)
     if not tests:
         st.info("No recorded side-by-side test is available yet.")
         return
     chosen = st.selectbox(
         "Compare versions from",
-        [period.start for period in tests],
+        [period.start for period in reversed(tests)],
         format_func=lambda key: key.astimezone(BARCELONA).strftime("%d %b %H:%M:%S %Z"),
     )
     period = next(period for period in tests if period.start == chosen)
@@ -327,7 +332,8 @@ def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
         )
     if period.out:
         st.caption(
-            f"Covered by the main version during this period: {', '.join(period.out)}"
+            f"Paused at some point in this test: {', '.join(period.out)}. "
+            "Their assigned requests still count in this comparison."
         )
     st.caption(
         "Confirmed team backup counts requests where our main version covered a challenger. "
