@@ -78,6 +78,14 @@ VERSION_STYLES: dict[str, VersionStyle] = {
         "#7a3d00",
         "Titan retrained on more carousels, plus the shopper's day: today's categories, cart and views.",
     ),
+    "lauri-titan-plus": VersionStyle(
+        "#b5179e",
+        "Titan plus what the shopper carted in the history and never bought, as a candidate and a weight.",
+    ),
+    "lauri-titan-pool100": VersionStyle(
+        "#f2b134",
+        "Titan's weights, reaching 100 deep into each category's ranking instead of 30.",
+    ),
 }
 """Add a line here when a version is added to serving/versions.py VERSIONS."""
 

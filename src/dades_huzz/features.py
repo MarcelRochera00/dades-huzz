@@ -471,6 +471,7 @@ LAURI_FEATURES = (
     "day_carted",
     "day_viewed",
     "day_history_sales",
+    "history_carted",
 )
 """What Lauri knows about one candidate for one request, in the order of the columns of `lauri_features`.
 `session_history_sales` and `viewed_history_sales` are the history sales counted only as far as the product is
@@ -480,9 +481,17 @@ a slow seller, and most of all when the shopper viewed it (docs/experiments.md r
 New features go at the end, never in between: weights stored earlier (Lauri Titan's thirteen) stay valid and
 count the later features as zero."""
 
-LAURI_DAY_FEATURES = LAURI_FEATURES[-4:]
+LAURI_DAY_FEATURES = (
+    "day_category_share",
+    "day_carted",
+    "day_viewed",
+    "day_history_sales",
+)
 """What Lauri Colossus adds, from the shopper's day (`LauriDay`): the category's share of today's views, the
 product is in today's cart, the product was viewed today, and the history sales counted as far as that share."""
+LAURI_CART_FEATURES = ("history_carted",)
+"""What Lauri Titan+ adds: the product is in one of the shopper's history carts and was never bought. In our
+own carousels such a product sells 5.4 times the average shown product (#5, 19:22 UTC)."""
 DAY_CART_WEIGHT = 3
 DAY_VIEWED_MAX = 20
 """As the serving loop keeps a shopper's day in `State` (docs/contracts.md): an add-to-cart counts three views
@@ -535,10 +544,12 @@ def lauri_features(
     profile: Mapping[str, float] | None,
     signals: LauriSignals,
     day: LauriDay | None = None,
+    carts: AbstractSet[str] = frozenset(),
 ) -> np.ndarray:
     """One row of LAURI_FEATURES per product, for a shopper who viewed `viewed` (oldest first), whose
-    shopper profile is `profile` and whose day so far is `day` (without it the day's features are zero).
-    The same function builds the training rows and the live ones."""
+    shopper profile is `profile`, whose day so far is `day` (without it the day's features are zero) and who
+    carted `carts` in the history without buying them. The same function builds the training rows and the
+    live ones."""
     day_views = sum(day.categories.values()) if day else 0
     day_viewed = frozenset(day.viewed) if day else frozenset()
     category, subcategory = signals.category, signals.subcategory
@@ -582,6 +593,7 @@ def lauri_features(
             day is not None and product in day.carted,
             product in day_viewed,
             sales * day_share,
+            product in carts,
         )
     return rows
 
@@ -729,6 +741,10 @@ def lauri_training_rows(rawtree: RawTree, parts: int = 8) -> LauriTrainingRows:
     sale_times = {product: np.array(moments) for product, moments in times.items()}
     profiles = shopper_profiles(rawtree, until=PRACTICE_ROUND_START)
     bought = shopper_purchases(rawtree, until=PRACTICE_ROUND_START)
+    carts = {
+        user: frozenset(products)
+        for user, products in shopper_carts(rawtree, until=PRACTICE_ROUND_START).items()
+    }
     medians = median_log_prices(category, price)
     days = shopper_day_replays(rawtree)
     features, owned = [], []
@@ -750,7 +766,14 @@ def lauri_training_rows(rawtree: RawTree, parts: int = 8) -> LauriTrainingRows:
             else None
         )
         features.append(
-            lauri_features(row["shown"], viewed, profiles.get(user), signals, day)
+            lauri_features(
+                row["shown"],
+                viewed,
+                profiles.get(user),
+                signals,
+                day,
+                carts.get(user, frozenset()),
+            )
         )
         mine = set(bought.get(user, ())) | {
             product
