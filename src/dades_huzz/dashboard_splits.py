@@ -104,7 +104,7 @@ WITH active_requests AS (
            ) AS assigned_index,
            coalesce(f.has_feedback, 0) AS finished, f.outcome.1 AS shown_by,
            s.version_name AS actual, f.outcome.3 AS purchased, f.outcome.4 AS amount,
-           c.new_shopper OR c.viewed_new_product AS cold
+           c.new_shopper AS new_shopper, c.new_shopper OR c.viewed_new_product AS cold
     FROM active_requests AS r
     LEFT JOIN cold_requests AS c ON r.id = c.id
     LEFT JOIN latest_feedback AS f ON r.id = f.id
@@ -112,6 +112,8 @@ WITH active_requests AS (
 )
 SELECT assigned_index, actual, shown_by, finished,
        count() AS requests, countIf(purchased != '') AS purchases, sum(amount) AS revenue_eur,
+       countIf(new_shopper) AS new_requests,
+       countIf(new_shopper AND purchased != '') AS new_purchases,
        countIf(cold) AS cold_requests, countIf(cold AND purchased != '') AS cold_purchases
 FROM outcomes
 GROUP BY assigned_index, actual, shown_by, finished
@@ -144,6 +146,9 @@ class VersionStats:
     cold_completed: int = 0
     """Cold requests (new shopper, or viewed a product added during the event) with feedback."""
     cold_purchases: int = 0
+    new_assigned: int = 0
+    new_completed: int = 0
+    new_purchases: int = 0
 
     @property
     def completed(self) -> int:
@@ -277,12 +282,16 @@ def read_split_stats(rawtree: RawTree, period: SplitPeriod) -> SplitStats:
     for row in rows:
         result = stats[row["assigned_index"] - 1]
         count = row["requests"]
+        new_count = row["new_requests"]
         result.assigned += count
+        result.new_assigned += new_count
         if not row["finished"]:
             result.pending += count
             continue
         result.purchases += row["purchases"]
         result.revenue_eur += row["revenue_eur"] or 0.0
+        result.new_completed += new_count
+        result.new_purchases += row["new_purchases"]
         result.cold_completed += row["cold_requests"]
         result.cold_purchases += row["cold_purchases"]
         if row["shown_by"] == "fallback":
