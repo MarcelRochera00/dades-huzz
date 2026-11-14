@@ -66,6 +66,14 @@ fallback list, trends, signals.
 
 **Final round**: Sunday 10:00-12:00 CET, the only time that is scored. _Avoid_: test, evaluation.
 
+**Switch**: the moment the final round starts and the stream moves to data nobody has seen (new shoppers,
+new products, new trends). What happened before it may no longer describe the shoppers after it.
+_Avoid_: reset, cutover.
+
+**Category ranking**: each category's products ordered by how much they sell since the switch, leaning on
+the history's best sellers only while live sales are too few to trust and the history keeps predicting
+them. A new product enters as soon as it sells. _Avoid_: category best sellers (the history-only list).
+
 **Escaped request**: a request whose feedback is not `served_by = team`, so the shopper saw the fallback. Its
 reason is `missing`, `late` or `invalid`. _Avoid_: lost, dropped, failed request.
 

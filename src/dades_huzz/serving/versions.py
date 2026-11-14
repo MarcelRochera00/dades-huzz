@@ -22,7 +22,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from dades_huzz.data import RawTree, Record, State
-from dades_huzz.features import category_signals, shopper_profiles, shopper_purchases
+from dades_huzz.features import (
+    category_signals,
+    live_category_signals,
+    shopper_profiles,
+    shopper_purchases,
+)
 from dades_huzz.model import best_sellers, category_best_sellers
 from dades_huzz.serving.loop import Recommend
 
@@ -60,6 +65,9 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
         ),
         keep_viewed=True,
         viewed_first=3,
+    ),
+    "tati-terminator-category-viewed-live": lambda rawtree: category_best_sellers(
+        **vars(live_category_signals(rawtree)), keep_viewed=True
     ),
     "tati-apocalypse-profile": lambda rawtree: _apocalypse(rawtree),
     "tati-armageddon-viewed-profile": lambda rawtree: _apocalypse(
