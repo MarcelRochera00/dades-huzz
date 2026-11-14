@@ -4,12 +4,16 @@
     uv run python scripts/train_lauri.py --save          # validate, refit on everything, store the weights
     uv run python scripts/train_lauri.py --no-day --save # Colossus without the shopper's day
     uv run python scripts/train_lauri.py --name lauri-titan-feedback --no-day --save   # retrain Titan
+    uv run python scripts/train_lauri.py --name lauri-titan-plus --history-carts --save  # Titan+
 
 Validation: train on the feedback before the last `--holdout-minutes`, score on those minutes, next to a
 reference that knows only the slot and whether the product was viewed, to Lauri Titan's stored weights
 (fitted on every row up to their training time, so they may have seen part of the held-out minutes) and to
 Titan's features refitted on the same training rows. The rule: the new weights go live only if their
-held-out log-likelihood beats the refitted Titan's. Reads TEAM_ID and RAWTREE_API_KEY from .env.
+held-out log-likelihood beats the refitted Titan's. For Titan+ (`--history-carts`, fixed before its first
+run): its held-out log-likelihood is not below the refitted Titan's, its returning weight on `history_carted`
+is positive, and at least MIN_CART_PURCHASES purchases of carted products back it. Reads TEAM_ID and
+RAWTREE_API_KEY from .env.
 """
 
 import argparse
@@ -20,6 +24,7 @@ import numpy as np
 from dades_huzz.data import RawTree
 from dades_huzz.evaluation import carousel_report
 from dades_huzz.features import (
+    LAURI_CART_FEATURES,
     LAURI_DAY_FEATURES,
     LAURI_FEATURES,
     lauri_training_rows,
@@ -35,7 +40,12 @@ from dades_huzz.model import (
 )
 
 TITAN = "lauri-titan-feedback"
-TITAN_FEATURES = tuple(f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES)
+TITAN_FEATURES = tuple(
+    f for f in LAURI_FEATURES if f not in LAURI_DAY_FEATURES + LAURI_CART_FEATURES
+)
+COLOSSUS_FEATURES = TITAN_FEATURES + LAURI_DAY_FEATURES
+TITAN_PLUS_FEATURES = TITAN_FEATURES + LAURI_CART_FEATURES
+MIN_CART_PURCHASES = 40
 
 
 def main() -> None:
@@ -54,10 +64,18 @@ def main() -> None:
         help="leave the shopper's day out: Titan's features only",
     )
     parser.add_argument(
+        "--history-carts",
+        action="store_true",
+        help="Titan+: Titan's features plus history_carted (no day)",
+    )
+    parser.add_argument(
         "--save", action="store_true", help="refit on every row and store the weights"
     )
     args = parser.parse_args()
-    features = TITAN_FEATURES if args.no_day else LAURI_FEATURES
+    if args.history_carts:
+        features = TITAN_PLUS_FEATURES
+    else:
+        features = TITAN_FEATURES if args.no_day else COLOSSUS_FEATURES
     rawtree = RawTree.from_env()
     rows = lauri_training_rows(rawtree)
     target = (
@@ -82,15 +100,33 @@ def main() -> None:
     titan = fit_lauri(rows, train, target, args.l2, TITAN_FEATURES)
     titan_ll = report("titan refitted", *lauri_scores(titan, rows), rows, test)
     fitted = fit_lauri(rows, train, target, args.l2, features)
-    name = "titan features" if args.no_day else "with the day"
+    if args.history_carts:
+        name = "history carts"
+    else:
+        name = "titan features" if args.no_day else "with the day"
     fitted_ll = report(name, *lauri_scores(fitted, rows), rows, test)
     for segment in LAURI_SEGMENTS:
         pairs = zip(LAURI_FEATURES, fitted[segment]["weights"], strict=True)
         print(
             f"  {segment}: "
-            + ", ".join(f"{name} {weight:+.2f}" for name, weight in pairs)
+            + ", ".join(
+                f"{name} {weight:+.2f}" for name, weight in pairs if name in features
+            )
         )
-    if not args.no_day:
+    if args.history_carts:
+        column = LAURI_FEATURES.index("history_carted")
+        carted = rows.features[:, column] > 0
+        support = int(rows.purchased[carted].sum())
+        weight = fitted["returning"]["weights"][column]
+        passes = fitted_ll >= titan_ll and weight > 0 and support >= MIN_CART_PURCHASES
+        print(
+            f"history carts shown {int(carted.sum())} times, bought {support}; returning weight {weight:+.2f}"
+        )
+        print(
+            f"rule: held-out log-likelihood {fitted_ll:.1f} against the refitted Titan's {titan_ll:.1f},"
+            f" weight > 0, support >= {MIN_CART_PURCHASES}: {'PASSES' if passes else 'FAILS'}"
+        )
+    elif not args.no_day:
         verdict = "PASSES" if fitted_ll > titan_ll else "FAILS"
         print(
             f"rule: held-out log-likelihood {fitted_ll:.1f} against the refitted Titan's {titan_ll:.1f}: {verdict}"

@@ -272,6 +272,7 @@ def test_lauri_features_know_the_shoppers_day():
     import math
 
     from dades_huzz.features import (
+        LAURI_DAY_FEATURES,
         LAURI_FEATURES,
         LauriDay,
         LauriSignals,
@@ -295,8 +296,28 @@ def test_lauri_features_know_the_shoppers_day():
     assert [row["day_viewed"] for row in by_name] == [0, 0, 1]
     assert math.isclose(by_name[1]["day_history_sales"], 0.75 * math.log(10))
     without = lauri_features(["p1", "p2", "p3"], [], None, signals)
-    assert not without[:, -4:].any()
-    assert (without[:, :-4] == rows[:, :-4]).all()
+    day_columns = [LAURI_FEATURES.index(name) for name in LAURI_DAY_FEATURES]
+    assert not without[:, day_columns].any()
+    others = [i for i in range(len(LAURI_FEATURES)) if i not in day_columns]
+    assert (without[:, others] == rows[:, others]).all()
+
+
+def test_lauri_features_know_the_shoppers_history_carts():
+    from dades_huzz.features import LAURI_FEATURES, LauriSignals, lauri_features
+
+    signals = LauriSignals(
+        category={"p1": "toys", "p2": "toys"},
+        subcategory={},
+        price={},
+        history_sales={},
+        live_sales={},
+        median_log_price={},
+    )
+    rows = lauri_features(["p1", "p2"], [], None, signals, carts=frozenset({"p2"}))
+    column = LAURI_FEATURES.index("history_carted")
+    assert list(rows[:, column]) == [0, 1]
+    assert column == len(LAURI_FEATURES) - 1  # new features go at the end
+    assert not lauri_features(["p1", "p2"], [], None, signals)[:, column].any()
 
 
 def test_a_day_replay_never_sees_what_came_after_the_cut():
