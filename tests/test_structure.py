@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_AT_ROOT = {
     ".agents",
     ".claude",
+    ".env.example",
     ".github",
     ".gitattributes",
     ".gitignore",

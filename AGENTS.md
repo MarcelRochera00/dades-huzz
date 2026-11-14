@@ -36,6 +36,23 @@ Read `docs/challenge/` (what the company asked for), `docs/contracts.md` (what t
 - Ask for confirmation only when it is blocking and significant: the change touches another person's
   lane or anything in `docs/contracts.md`. A contract change gets its own PR.
 - If `main` breaks, fix or revert within 10 minutes and tell the team.
+- Before you start a branch and again before you open a PR, run `git fetch` and `gh pr list`. Do not
+  edit a file someone else has in an open PR; ask them first. Exception: lanes B and C share
+  `model.py` and `features.py` by design; each edits only its own functions and rebases before merging.
+
+## Issues and progress
+
+Each lane has one issue on GitHub (label `area:live`, `area:model`, `area:learning` or
+`area:decisions`), linked from the index issue (label `wayfinder:map`). Lanes and owners are in
+`docs/contracts.md`.
+
+- Work on your lane issue and tick its checklist as slices reach `main`.
+- When you find a problem or an idea outside the current task, do not fix it in this branch. Open an
+  issue with `gh issue create`: give it its area label, assign the owner or owners from
+  `docs/contracts.md`, and link it from the index issue in a comment.
+- A finding that changes what another lane should do (a data quirk, a latency limit, a segment that
+  converts) goes as a comment on the index issue as well as in the chat.
+- At each sync, the owner posts a status comment on their lane issue: done, next, blocked.
 
 ## Where things go
 
@@ -47,6 +64,7 @@ row here. If nothing fits, ask the user instead of inventing a place.
 | Loading and cleaning data | `src/dades_huzz/data.py` | |
 | Feature building | `src/dades_huzz/features.py` | |
 | Training and prediction | `src/dades_huzz/model.py` | |
+| Live serving loop: pull requests, keep the state fresh, push answers | `src/dades_huzz/serving.py` | |
 | Metric, validation, submission check | `src/dades_huzz/evaluation.py` | |
 | Tests | `tests/test_<module>.py` | mirrors the module it tests |
 | Commands a person runs (train, predict, submit) | `scripts/<verb>_<thing>.py` | thin: parse args, call `src/` |
@@ -76,7 +94,11 @@ row here. If nothing fits, ask the user instead of inventing a place.
 - Log every modelling attempt as a row in `docs/experiments.md`, including the ones that got worse.
 - Validation must imitate how the company will score us. State the validation scheme next to any
   score you report.
-- Everything the product outputs is in English: code, comments, commits, PRs, README, slides.
+- Everything the product outputs is in English: code, comments, commits, PRs, README, slides. The only
+  exceptions are `docs/COM-TREBALLEM.md` (Catalan, for the team) and the spoken demo, whose language
+  the team picks for the jury.
+- Secrets (`RAWTREE_API_KEY`) live only in the git-ignored `.env`; `.env.example` lists the names.
+  Never print the key in logs, PRs or issues.
 
 ## Skills
 

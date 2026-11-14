@@ -10,6 +10,7 @@ to write 10 product IDs to RawTree. Only Sunday 10:00–12:00 CET is scored. Sta
 | `brief.md` | The written brief: the `README.md` of the organisers' repo | Primary source |
 | `datathon-fme-2026-main.zip` | The organisers' repo ([rawtreedb/datathon-fme-2026](https://github.com/rawtreedb/datathon-fme-2026)): brief, `.env.example` and the starter kit (`starter/recommender.py`, `starter/queries.sql`, `starter/offline_eval.ipynb`) | Primary source |
 | `challenge-page.html` (+ `challenge-page_files/`) | Saved copy of the challenge page, [datathon.rawtree.dev](https://datathon.rawtree.dev), with the FAQ | Primary source |
+| `side-challenge.md` | The Tukey side challenge (decision dashboard), summarised from the organisers' Drive PDF | Primary source (summary) |
 | `notes.md` | Notes taken during the presentation | Good |
 | `qa.md` | Questions we asked the company, with their answers and the time | Primary source |
 
@@ -17,9 +18,10 @@ If two sources disagree, the written brief wins; then ask the company and log th
 
 ## Known disagreements
 
-- **What the baseline is.** `brief.md`: the all-time best sellers that are in stock, ranked once at the
-  start (this is what `starter/recommender.py` does). The web page: the best sellers of the category of the
-  last product viewed. The brief wins until the RawTree team answers; log it in `qa.md`.
+- **What the baseline is** (resolved). The page's story says "the best sellers of the category the
+  shopper is looking at", but its own scoring section agrees with `brief.md`: the baseline (score 0)
+  and the fallback are the 10 all-time best sellers that are in stock, ranked once at the start, which
+  is what `starter/recommender.py` does.
 
 ## How to obtain the data
 

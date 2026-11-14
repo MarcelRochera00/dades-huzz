@@ -17,6 +17,7 @@ data/*
 # secrets and local state
 .env
 .env.*
+!.env.example
 .handoffs/
 .claude/settings.local.json
 .DS_Store
