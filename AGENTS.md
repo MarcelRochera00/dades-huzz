@@ -64,7 +64,7 @@ row here. If nothing fits, ask the user instead of inventing a place.
 | Loading and cleaning data | `src/dades_huzz/data.py` | |
 | Feature building | `src/dades_huzz/features.py` | |
 | Training and prediction | `src/dades_huzz/model.py` | |
-| Live serving loop: pull requests, keep the state fresh, push answers, handover, serving report | `src/dades_huzz/serving/` | one module per job: `loop.py`, `handover.py`, `report.py` |
+| Live serving loop: pull requests, keep the state fresh, push answers, handover, watchdog, serving report | `src/dades_huzz/serving/` | one module per job: `loop.py`, `handover.py`, `watchdog.py`, `report.py` |
 | Metric, validation, submission check | `src/dades_huzz/evaluation.py` | |
 | Tests | `tests/test_<module>.py` | mirrors the module it tests |
 | Commands a person runs (train, predict, submit) | `scripts/<verb>_<thing>.py` | thin: parse args, call `src/` |

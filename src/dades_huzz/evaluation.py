@@ -2,8 +2,10 @@
 
 import math
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+import numpy as np
 
 from dades_huzz.data import RawTree, Record, State
 
@@ -29,7 +31,9 @@ class SlotOneIps:
     matches: int
 
 
-def slot1_ips(firsts: Sequence[str], logged: Sequence[Mapping[str, Any]]) -> SlotOneIps:
+def slot1_ips(
+    firsts: Sequence[str | None], logged: Sequence[Mapping[str, Any]]
+) -> SlotOneIps:
     """Inverse-propensity estimate of the click rate of our first slot, as in the starter `offline_eval`.
 
     Only the impressions where our first pick equals what the old system put first tell us anything; each
@@ -40,7 +44,8 @@ def slot1_ips(firsts: Sequence[str], logged: Sequence[Mapping[str, Any]]) -> Slo
     total_weight = 0.0
     matches = 0
     for first, row in zip(firsts, logged, strict=True):
-        if first != row["shown"][0]:
+        # a zero propensity cannot be reweighted (and slot 1 has no cap): the row tells us nothing
+        if first != row["shown"][0] or row["propensity"][0] <= 0:
             continue
         weight = 1 / row["propensity"][0]
         matches += 1
@@ -64,6 +69,32 @@ class SlateIps:
     matched_purchases: int
 
 
+def _slot_weight(propensity: float, cap: float) -> float:
+    """min(1 / propensity, cap); a logged propensity of 0 counts as the cap instead of dividing by 0."""
+    return cap if propensity <= 0 else min(1 / propensity, cap)
+
+
+def slate_ips_by_request(
+    answers: Sequence[Sequence[str]],
+    logged: Sequence[Mapping[str, Any]],
+    cap: float = 20,
+) -> list[float]:
+    """Each request's share of `slate_ips`: the capped weight of the purchase we would have shown in
+    the same slot as the old system, or 0. Their mean is the policy's estimate; pairing two policies'
+    lists request by request is what `paired_difference` needs.
+    """
+    values = []
+    for answer, row in zip(answers, logged, strict=True):
+        value = 0.0
+        for ours, shown, propensity in zip(
+            answer, row["shown"], row["propensity"], strict=False
+        ):
+            if ours == shown and row["purchased"] == shown:
+                value += _slot_weight(propensity, cap)
+        values.append(value)
+    return values
+
+
 def slate_ips(
     answers: Sequence[Sequence[str]],
     logged: Sequence[Mapping[str, Any]],
@@ -75,24 +106,92 @@ def slate_ips(
     with weight min(1 / propensity, cap). The cap trades a little bias for a lot less noise: uncapped,
     a single purchase of a rarely shown product can outweigh thousands of others.
     """
-    total = 0.0
     matches = 0
     matched_purchases = 0
     for answer, row in zip(answers, logged, strict=True):
-        for ours, shown, propensity in zip(
-            answer, row["shown"], row["propensity"], strict=False
-        ):
+        for ours, shown in zip(answer, row["shown"], strict=False):
             if ours != shown:
                 continue
             matches += 1
-            if row["purchased"] == shown:
-                matched_purchases += 1
-                total += min(1 / propensity, cap)
+            matched_purchases += row["purchased"] == shown
+    values = slate_ips_by_request(answers, logged, cap)
     n = len(logged)
     return SlateIps(
-        ips=total / n if n else 0.0,
+        ips=sum(values) / n if n else 0.0,
         matches=matches,
         matched_purchases=matched_purchases,
+    )
+
+
+@dataclass(frozen=True)
+class PairedDifference:
+    """How much a challenger beats a baseline on the same requests, with 95 % bootstrap intervals.
+
+    `diff` is challenger minus baseline per request (what the score rewards: the score is normalised
+    from the baseline up); `ratio` is challenger over baseline, for telling the story.
+    """
+
+    diff: float
+    low: float
+    high: float
+    ratio: float
+    ratio_low: float
+    ratio_high: float
+
+
+def paired_difference(
+    baseline: Sequence[float],
+    challenger: Sequence[float],
+    cases: Sequence[Mapping[str, Any]],
+    draws: int = 1000,
+    seed: int = 0,
+) -> PairedDifference:
+    """Paired difference of two policies' per-request values, with a bootstrap over shoppers.
+
+    One shopper's requests are not independent (the same taste, the same rare purchase seen again), so
+    each redrawn week draws whole shoppers (`request.user_id`) with replacement, never single requests;
+    a request without a user_id is its own shopper. The intervals are the 2.5 and 97.5 percentiles.
+    """
+    if not cases:
+        return PairedDifference(0.0, 0.0, 0.0, math.nan, math.nan, math.nan)
+    # shoppers are numbered in sorted order, so the same seed gives the same interval whatever order
+    # RawTree returned the requests in
+    users = [
+        str(case["request"].get("user_id") or f"__request__{index}")
+        for index, case in enumerate(cases)
+    ]
+    groups = {user: code for code, user in enumerate(sorted(set(users)))}
+    codes_array = np.asarray([groups[user] for user in users])
+    base_sum = np.bincount(codes_array, weights=np.asarray(baseline, dtype=float))
+    chal_sum = np.bincount(codes_array, weights=np.asarray(challenger, dtype=float))
+    size = np.bincount(codes_array).astype(float)
+    shoppers = len(groups)
+
+    rng = np.random.default_rng(seed)
+    diffs = np.empty(draws)
+    ratios = np.empty(draws)
+    for draw in range(draws):
+        picked = rng.integers(0, shoppers, size=shoppers)
+        base, chal = base_sum[picked].sum(), chal_sum[picked].sum()
+        diffs[draw] = (chal - base) / size[picked].sum()
+        ratios[draw] = chal / base if base else np.nan
+
+    total_base, total_chal = base_sum.sum(), chal_sum.sum()
+    ratios = ratios[~np.isnan(ratios)]
+    no_ratio = (math.nan, math.nan)
+    ratio_low, ratio_high = (
+        tuple(float(x) for x in np.percentile(ratios, [2.5, 97.5]))
+        if ratios.size
+        else no_ratio
+    )
+    low, high = (float(x) for x in np.percentile(diffs, [2.5, 97.5]))
+    return PairedDifference(
+        diff=float((total_chal - total_base) / size.sum()),
+        low=low,
+        high=high,
+        ratio=float(total_chal / total_base) if total_base else math.nan,
+        ratio_low=ratio_low,
+        ratio_high=ratio_high,
     )
 
 
@@ -156,6 +255,7 @@ class Report:
     hit_rate: float
     slot1: SlotOneIps
     slate: SlateIps
+    answers: list[list[str]] = field(repr=False, compare=False, default_factory=list)
 
 
 def evaluate(
@@ -179,6 +279,8 @@ def evaluate(
         cases=n,
         weighted_hit=sum(hits) / n if n else 0.0,
         hit_rate=sum(hit > 0 for hit in hits) / n if n else 0.0,
-        slot1=slot1_ips([answer[0] for answer in answers], logged),
+        # an empty answer has no first slot: None never matches what the old system showed
+        slot1=slot1_ips([answer[0] if answer else None for answer in answers], logged),
         slate=slate_ips(answers, logged),
+        answers=answers,
     )

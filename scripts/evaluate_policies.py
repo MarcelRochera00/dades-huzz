@@ -1,6 +1,9 @@
 """Score the recommenders offline on the last week of the old carousel log (docs/experiments.md).
 
 Signals are built only from purchases before the cut, and the cases are the impressions after it.
+Every policy is compared with the first one (the baseline), and every later one with the champion, on
+the same requests: the paired difference in purchases per 100 requests with a 95 % bootstrap interval
+over shoppers, at caps 20, 50 and 100.
 
     uv run python scripts/evaluate_policies.py --sample 10
 """
@@ -9,11 +12,19 @@ import argparse
 import time
 
 from dades_huzz.data import RawTree, State
-from dades_huzz.evaluation import evaluate, history_cases
+from dades_huzz.evaluation import (
+    evaluate,
+    history_cases,
+    paired_difference,
+    slate_ips_by_request,
+)
 from dades_huzz.features import best_sellers_until, category_signals
 from dades_huzz.model import best_sellers, category_best_sellers
 
 CUT = "2026-11-07 07:00:00"
+CAPS = (20, 50, 100)
+CHAMPION = "tati-destroyer-category"
+"""The policy every later one must beat to take its place."""
 
 
 def main() -> None:
@@ -26,6 +37,9 @@ def main() -> None:
         type=int,
         default=10,
         help="evaluate N tenths of the week (10 = all)",
+    )
+    parser.add_argument(
+        "--draws", type=int, default=1000, help="bootstrap redraws of the shoppers"
     )
     args = parser.parse_args()
 
@@ -48,16 +62,41 @@ def main() -> None:
         "tati-destroyer-category": category_best_sellers(
             signals.category_of, signals.ranked_by_category
         ),
+        "tati-terminator-category-viewed": category_best_sellers(
+            signals.category_of, signals.ranked_by_category, keep_viewed=True
+        ),
+    }
+    reports = {
+        name: evaluate(recommend, cases, state) for name, recommend in policies.items()
     }
     print(
-        "policy                   | slate IPS x100 (cap 20) | matched buys | weighted hit x100 | slot-1 SNIPS"
+        "policy                          | slate IPS x100 (cap 20) | matched buys | weighted hit x100 | slot-1 SNIPS"
     )
-    for name, recommend in policies.items():
-        report = evaluate(recommend, cases, state)
+    for name, report in reports.items():
         print(
-            f"{name:24} | {report.slate.ips * 100:23.3f} | {report.slate.matched_purchases:12d} |"
+            f"{name:31} | {report.slate.ips * 100:23.3f} | {report.slate.matched_purchases:12d} |"
             f" {report.weighted_hit * 100:17.3f} | {report.slot1.snips:.4f} ({report.slot1.matches} matches)"
         )
+
+    logged = [case["logged"] for case in cases]
+    baseline_name, *challengers = reports
+    for cap in CAPS:
+        values = {
+            name: slate_ips_by_request(report.answers, logged, cap)
+            for name, report in reports.items()
+        }
+        print(f"\ncap {cap} | purchases/100 requests, 95 % interval over shoppers")
+        for name in challengers:
+            later = list(reports).index(name) > list(reports).index(CHAMPION)
+            for ref in [baseline_name, CHAMPION] if later else [baseline_name]:
+                result = paired_difference(
+                    values[ref], values[name], cases, draws=args.draws
+                )
+                print(
+                    f"{name:31} vs {ref:23} | IPS {sum(values[name]) / len(cases) * 100:.3f}"
+                    f" | diff {result.diff * 100:+.3f} [{result.low * 100:+.3f}, {result.high * 100:+.3f}]"
+                    f" | ratio {result.ratio:.2f} [{result.ratio_low:.2f}, {result.ratio_high:.2f}]"
+                )
 
 
 if __name__ == "__main__":
