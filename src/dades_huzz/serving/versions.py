@@ -25,9 +25,11 @@ from dades_huzz.features import (
     shopper_purchases,
 )
 from dades_huzz.model import (
+    LAURI_PER_CATEGORY,
     best_sellers,
     cart_first,
     category_best_sellers,
+    cold_first,
     lauri,
     load_lauri_weights,
     subcategory_first,
@@ -98,10 +100,18 @@ def _omega(rawtree: RawTree, day_weight: float = 0.0) -> Recommend:
     )
 
 
-def _lauri(rawtree: RawTree, name: str, day: bool = False) -> Recommend:
+def _lauri(
+    rawtree: RawTree,
+    name: str,
+    day: bool = False,
+    history_carts: bool = False,
+    per_category: int = LAURI_PER_CATEGORY,
+) -> Recommend:
     """Lauri Titan: the weights last trained under `name` (scripts/train_lauri.py), scoring the live category
     ranking's products with each shopper's profile, and never showing what they bought.
-    With `day`, Lauri Colossus: the shopper's day so far in `State` counts too."""
+    With `day`, Lauri Colossus: the shopper's day so far in `State` counts too.
+    With `history_carts`, Lauri Titan+: what each shopper carted in the history and never bought joins.
+    `per_category`: how deep each category's ranking reaches (Titan pool-100 takes 100)."""
     weights = load_lauri_weights(rawtree, name)
     until = f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
     ranking = LiveCategoryRanking(rawtree).start()
@@ -118,6 +128,8 @@ def _lauri(rawtree: RawTree, name: str, day: bool = False) -> Recommend:
         profiles=shopper_profiles(rawtree, until=until),
         bought=shopper_purchases(rawtree, until=until),
         day=day,
+        carts=shopper_carts(rawtree, until=until) if history_carts else None,
+        per_category=per_category,
     )
 
 
@@ -166,6 +178,23 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "lauri-titan-feedback": lambda rawtree: _lauri(rawtree, "lauri-titan-feedback"),
     "lauri-colossus-feedback": lambda rawtree: _lauri(
         rawtree, "lauri-colossus-feedback", day=True
+    ),
+    "lauri-titan-plus": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-plus", history_carts=True
+    ),
+    "lauri-titan-pool100": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-feedback", per_category=100
+    ),
+    "lauri-titan-cold60": lambda rawtree: cold_first(
+        _lauri(rawtree, "lauri-titan-feedback"),
+        category_best_sellers(
+            **vars(live_category_signals(rawtree)),
+            keep_viewed=True,
+            cold_start=True,
+            bought=shopper_purchases(
+                rawtree, until=f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S}"
+            ),
+        ),
     ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
