@@ -21,9 +21,50 @@ likely to buy into RawTree, or the shopper sees a generic list. Only Sunday 10:0
 - **Keeps up with the shop.** It sees stock, prices and new products within about 2 s, and re-reads
   the whole catalogue every minute as a safety net.
 
-Every attempt, including the ones that lost, is in [docs/experiments.md](docs/experiments.md). Live,
-**Tati Terminator** has the best expected conversion: about 1.4–1.6x the organisers' baseline in the same
-window (rows 19–20).
+Every attempt, including the ones that lost, is in [docs/experiments.md](docs/experiments.md).
+
+### The final model and how we got there
+
+In the final round every request is answered by a pair of learned rankers, `pair:lauri-omni-plain+lauri-titan-plus-als`:
+
+- **Cold requests** (a new shopper, or a view of a product added during the event) go to **Lauri Omni plain**,
+  which also reads what the shopper did today.
+- **Every other request** goes to **Lauri Titan+ ALS**, which adds each returning shopper's taste from the history.
+
+Over Sunday 01:45–07:00 CET four versions each served 25 % of the requests. No version won both kinds of
+request, so the final serves the best one for each:
+
+| Version | Cold requests | Other requests |
+|---|---|---|
+| `lauri-omni-plain` | **1.90** (5,931) | 1.26 (8,259) |
+| `lauri-titan-plus-als` | 1.55 (5,820) | **1.32** (8,156) |
+| `lauri-titan-plus` (the champion until then) | 1.39 (6,034) | 1.13 (8,286) |
+| `lauri-omni` | 1.25 (5,936) | 1.22 (8,235) |
+
+Expected conversion from the leaderboard by version (`uv run python scripts/choose_final.py choose`), requests
+in brackets. With that mix of requests the pair is expected at 1.57, against 1.24 for Titan+ alone.
+
+The path, one step at a time:
+
+| Step | What we did | Evidence | Rows |
+|---|---|---|---|
+| 1. Baseline | The organisers' best sellers, the same 10 products for everyone | About 0.7 expected conversion (0.69–0.79 by time of day) | 1, 17, 20 |
+| 2. Rules ("Tati") | Best sellers of the category the shopper is viewing (Destroyer, the first rule). Scored offline first with a pass rule fixed before the run, then live at 50/50 | Offline 2.57x best sellers (95 % 2.25 to 2.93); live 0.92 vs 0.76 in the same hour | 5, 17 |
+| 3. Diagnosis | Read our own feedback: what is bought of what we show | A product of the shopper's favourite category sells 0.767 per 100 slot-1 showings against 0.032; every rule sat at 2–2.6x the baseline. Later, history carts: a third of returning shoppers' carousel purchases from 6 % of the slots, which became Titan+ | 35, 37, 53 |
+| 4. Learned ranker ("Lauri") | A logistic regression scores each candidate; its weights come from our own carousels and are refitted as feedback grows | Held-out log-likelihood −958.9 vs −1302.2; live 1.03 vs 0.85 for the best rule | 40, 45, 37 |
+| 5. Live tournaments | Several versions at once, split by a hash of the request and compared in the same minutes | The pair above: 1.57 vs 1.24 (leaderboard read 01:45–07:00 CET, `choose_final.py`) | 52, 60, 61, 66 |
+
+What is not proven:
+
+- **The choice was not confirmed.** Row 61 planned two more hours of the choice against Titan+ at 50/50. There
+  was no time left for it, so the pair was chosen on the 01:45–07:00 read alone.
+- **New shoppers in the final start without a day.** Omni plain's lead on cold requests comes from what the
+  shopper did earlier in the day, and overnight every new shopper had some. With the day cut as short as theirs
+  the lead is gone: the bought product ranks level with Titan+'s order (MRR +0.007, interval spans 0), and the
+  calibration and the top 3 are worse (log-likelihood −537.5 vs −522.0, top 3 0.628 vs 0.705; 78 purchases, row 67).
+- **Five more ideas failed their own pass rule overnight** and did not go live: co-viewing candidates (62),
+  other cold orders (63), a ranker trained on organic purchases (64), forcing new products into the answer (65)
+  and three more feature families (67).
 
 ### Versions at a glance
 
@@ -40,9 +81,12 @@ requests; compare versions only inside the same window, because conversion moves
 | `tati-terminator-category-viewed-live` | Terminator, each category ranked by live sales since the switch plus a tuned share of the history | + live sales | 1.01 (17:50–18:25) |
 | `tati-apocalypse-profile` | Terminator blended with the returning shopper's 3 favourite categories; never what they bought | + shopper profile, purchases | **1.26** (17:50–18:25) |
 | `tati-armageddon-viewed-profile` | Apocalypse with up to 3 viewed products on top | same | 1.00 (17:50–18:25) |
-| `tati-cart-profile` | Apocalypse with up to 3 products the returning shopper carted in the history and never bought on top (those of the category viewed last first) | + history carts | not served yet |
-| `lauri-titan-feedback` | Scores every candidate of the versions above with weights learned from our own carousels, and shows the 10 most likely to be bought | all of the above, weighed by `scripts/train_lauri.py` | not served yet |
-| `lauri-colossus-feedback` | Titan retrained on one more hour of our carousels, which also knows the shopper's day: the categories they viewed today, what is in their cart and what they viewed | + shopper's day | not served yet |
+| `tati-cart-profile` | Apocalypse with up to 3 products the returning shopper carted in the history and never bought on top (those of the category viewed last first) | + history carts | 1.23 (20:05–20:50) |
+| `lauri-titan-feedback` | Scores every candidate of the versions above with weights learned from our own carousels, and shows the 10 most likely to be bought | all of the above, weighed by `scripts/train_lauri.py` | 1.45 (20:05–20:50) |
+| `lauri-colossus-feedback` | Titan retrained on one more hour of our carousels, which also knows the shopper's day: the categories they viewed today, what is in their cart and what they viewed | + shopper's day | 1.38 (20:05–20:50) |
+| `lauri-titan-plus` | Titan plus the products a returning shopper carted in the history and never bought, as candidates | + history carts | 1.50 (22:30–23:05) |
+| `lauri-titan-plus-als` | Titan+ plus each returning shopper's taste, from a factorisation of the history. **Final: every request that is not cold** | + ALS taste | see the final model above |
+| `lauri-omni-plain` | Omni's weights alone (Colossus' signals plus history carts), without Omni's cold rule or trending subcategory. **Final: cold requests** | + shopper's day, history carts | see the final model above |
 
 Which versions ran when is in the heartbeats (`scripts/check_serving.py`, the dashboard's splits view); why
 each one exists is in [docs/experiments.md](docs/experiments.md).
