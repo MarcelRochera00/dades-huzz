@@ -1,13 +1,56 @@
 """Prepare comparison windows and measurements for the Team dashboard."""
 
-from dataclasses import replace
-from datetime import datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 
 from dades_huzz.dashboard_splits import COLD_FLAGS, SplitPeriod
 from dades_huzz.data import RawTree, Record
 from dades_huzz.features import CATALOG_CATEGORY
+from dades_huzz.serving.handover import SILENT_MS
+from dades_huzz.serving.split import parse_split
 
 COLD_LABELS = ("New shopper only", "Viewed a new product only", "Both")
+
+ACTIVE_SPLIT = """
+SELECT loop_id::String AS loop_id, started_ms::Int64 AS started_ms, role::String AS role,
+       versions::String AS configuration, out::String AS paused, ts_ms::Int64 AS heartbeat_ms
+FROM {team}.scratch
+WHERE kind::String = 'heartbeat'
+  AND ts_ms::Int64 >= {since_ms} AND ts_ms::Int64 <= {now_ms}
+ORDER BY heartbeat_ms DESC"""
+
+
+@dataclass(frozen=True)
+class ActiveSplit:
+    shares: dict[str, int]
+    paused: tuple[str, ...]
+    heartbeat_at: datetime
+
+
+def read_active_split(rawtree: RawTree, now: datetime) -> ActiveSplit | None:
+    """Read the current split using the same freshness and priority rules as handover."""
+    now_ms = int(now.timestamp() * 1000)
+    since_ms = now_ms - SILENT_MS
+    rows = rawtree.query(
+        ACTIVE_SPLIT.format(team=rawtree.team, since_ms=since_ms, now_ms=now_ms),
+        timeout=2,
+    )
+    latest: dict[str, Record] = {}
+    for row in rows:
+        if since_ms <= int(row["heartbeat_ms"]) <= now_ms:
+            latest.setdefault(row["loop_id"], row)
+    active = min(
+        (row for row in latest.values() if row["role"] == "active"),
+        key=lambda row: (int(row["started_ms"]), row["loop_id"]),
+        default=None,
+    )
+    if active is None or not active["configuration"]:
+        return None
+    return ActiveSplit(
+        parse_split(active["configuration"]),
+        tuple(name for name in (active["paused"] or "").split(",") if name),
+        datetime.fromtimestamp(int(active["heartbeat_ms"]) / 1000, UTC),
+    )
 
 
 def comparison_periods(periods: list[SplitPeriod]) -> list[SplitPeriod]:

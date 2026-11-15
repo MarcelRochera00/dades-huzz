@@ -34,6 +34,7 @@ Each chart will state the decision it supports.
 
 | Decision | What the view shows |
 | --- | --- |
+| What is serving now? | Show the planned version shares from a recent active serving heartbeat and flag any paused version. |
 | Which version should we run? | Compare purchases per 100 assigned requests, euros per assigned request, request counts, and a confidence interval for the difference. Default to the full current A/B test. Start a new comparison period when the versions or their shares change. |
 | How has each version performed over time? | Plot expected purchases per 100 requests from the organizers' public practice leaderboard by version. Mark split changes and highlight periods when versions ran side by side. Show the request count behind each point and leave gaps when a version has no reported traffic. |
 | Does the recommender need attention? | Over the last 30 minutes, show the share of valid answers within three seconds, typical and slower response times, the organizer fallback rate, and counts of missing, late, and invalid answers. For a recorded side-by-side test, show how many of each version's assigned requests used the team's backup version or the organizers' fallback, with a separate rate for each. |
@@ -52,15 +53,15 @@ The practice leaderboard chart uses the organizers' expected purchase rates and 
 
 ### Jury view
 
-Open with a documented practice comparison of Tati Destroyer and in-stock best sellers, using
-expected purchases for both versions in the same time window. Label these as simulator estimates
-and use them to explain what a controlled store pilot should measure.
+Lead with the model version and its confirmed simulated sales, purchases, and purchases per 100
+displays. Default to the Sunday final, 10:00–12:00 Barcelona time, once final-round feedback is
+available. During the final, use the active serving split to choose the version automatically.
+With no recent heartbeat, use the version with the most confirmed displays in that round. The
+presenter can choose another version or open the results labeled **Practice**.
 
-Show observed simulated sales, purchases, and purchases per 100 confirmed displays for the selected
-version. The chart defaults to purchase rate over time and can show raw purchase counts. Each window
-shows its display count. Default to the Sunday final, 10:00–12:00 Barcelona time, once final-round
-feedback is available. Until then, show results labeled **Practice**. Preselect the version with
-the most confirmed displays in the round and allow the presenter to choose another version.
+The chart defaults to purchase rate over time and can show raw purchase counts. Each window
+shows its display count. Use the results and store demand to explain what a controlled store
+pilot should measure.
 
 Show which store subcategories are gaining purchase share using the serving detector’s
 15-minute multiplier. Label the store activity window and explain how it can inform stock checks

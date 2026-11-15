@@ -1,5 +1,6 @@
 """Read confirmed recommendation sales for the Jury view."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -11,27 +12,6 @@ PRACTICE_START_MS = int(datetime(2026, 11, 14, 9, tzinfo=UTC).timestamp() * 1000
 FINAL_START_MS = int(datetime(2026, 11, 15, 9, tzinfo=UTC).timestamp() * 1000)
 FINAL_END_MS = int(datetime(2026, 11, 15, 11, tzinfo=UTC).timestamp() * 1000)
 JURY_BUCKET_MS = 10 * 60 * 1000
-
-
-@dataclass(frozen=True)
-class PracticeArm:
-    version: str
-    label: str
-    expected_per_100: float
-    requests: int
-
-
-# RawTree practice leaderboard, 14 Nov 14:30–14:50 UTC (docs/experiments.md, #17).
-# Practice windows are no longer available from the leaderboard during the final.
-PRACTICE_DESTROYER = PracticeArm(
-    "tati-destroyer-category", "Tati Destroyer", 1.037, 1843
-)
-PRACTICE_BEST_SELLERS = PracticeArm(
-    "tati-0-bestsellers", "In-stock best sellers", 0.747, 1757
-)
-PRACTICE_LIFT_PCT = 100 * (
-    PRACTICE_DESTROYER.expected_per_100 / PRACTICE_BEST_SELLERS.expected_per_100 - 1
-)
 
 
 JURY_RESULTS = """
@@ -93,6 +73,15 @@ class JuryPeriod:
 @dataclass(frozen=True)
 class JuryData:
     periods: tuple[JuryPeriod, ...]
+
+
+def default_jury_version(
+    displays: Mapping[str, int], active_version: str | None = None
+) -> str | None:
+    """Prefer the active Final version, even while its first displays are pending."""
+    return active_version or min(
+        displays, key=lambda name: (-displays[name], name), default=None
+    )
 
 
 def load_jury_data(rawtree: RawTree) -> JuryData:
