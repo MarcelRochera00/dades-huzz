@@ -5,66 +5,68 @@ Lauri Titan+ ALS. Confirm the spoken language with the team.
 
 ## Initial pitch · 3–5 minutes
 
-**Question for the jury.** How does Lauri choose what each shopper sees?
+**Question for the jury.** How did we choose what to serve in the Final, and what did shoppers buy?
 
 Start the dashboard from the [README launch command](../README.md#run-it-yourself) on the
 presentation laptop. Prepare the following views.
 
+- **Team → Compare versions from → 15 Nov 00:22:45 CET → Purchase results.** Start here.
+  The recorded split ran until about **08:46 CET** and shows four versions with a planned
+  25% of traffic each. Keep **Backup use** ready if asked about fallbacks.
 - **Jury → Round → Final → Recommendation version → Lauri Omni Plain + Lauri Titan+ ALS.**
   Start at the top. Leave **Purchases per 100 displays** selected under **Sales activity over
   time**. Confirm the model heading and **Feedback through** timestamp. **Show latest round**
   opens Final automatically once feedback is available.
-- Keep a second **Jury → Practice** tab with the same pair selected as a backup. Use it if
-  Final results are pending. If you have five minutes, also prepare **Team → Active serving
-  split** for the status check.
+- Keep a **Jury → Practice** tab with the same pair selected as a backup if Final results
+  are pending.
 
 ### Three-minute rehearsal and backup script
 
-**0:00–0:45 · Jury, Final model**
+**0:00–0:35 · Team, overnight comparison**
+
+> “Overnight, we ran four versions side by side so they faced the same conditions. The Team
+> view shows how much traffic each version got and how often its assigned requests led to a
+> purchase. We could see whether a version did well on cold requests as well as looking at
+> its overall rate.”
+
+Point to the recorded window, **With feedback**, and **Cold purchases / 100**. Cold means a
+new shopper or a shopper who viewed a newly added product.
+
+**0:35–1:15 · Team, what we chose**
+
+> “To choose the Final version, we used the organizers’ Practice estimates from 01:45 to
+> 07:00. Omni Plain led on cold requests at 1.90 expected purchases per 100 requests.
+> Titan+ ALS led on the other requests at 1.32. We paired them so each ranker handles the
+> group where it led. Now let’s see what shoppers bought when we served that pair.”
+
+The visible Team table covers a longer period and reports recorded outcomes. Read the two
+selection rates from the overnight leaderboard evidence. If asked about confirmation, say
+the planned follow-up split did not run. [Experiment 68](experiments.md)
+
+**1:15–2:20 · Switch to Jury, confirmed results**
 
 > “Trained on past carousel results, Lauri uses browsing and cart activity to rank in-stock
-> products and recommend the top ten. It has three seconds to respond. Lauri Omni Plain handles
-> shoppers who are new to the store or who just viewed a newly added product. Lauri Titan+ ALS
-> handles the rest. It uses past shopping behaviour to surface products that are more likely
-> to suit that shopper.”
+> products and recommend the top ten. Here’s the Final pair. The simulator recorded [purchases]
+> purchases and [sales] in simulated sales across [displays] confirmed displays. That’s [rate]
+> purchases per 100 lists shown.”
 
-Point to **Final · Lauri Omni Plain + Lauri Titan+ ALS**. If using the Practice backup, say
-“This is a Practice recording of the same two rankers” and point to the **Practice** label.
+Point to **Final · Lauri Omni Plain + Lauri Titan+ ALS** and read the cards and **Feedback through**
+timestamp. Use **Results so far** while the round is running. If using the backup, introduce it as
+Practice and point to the round label. Open **Official competition score** separately if published.
 
-**0:45–1:25 · Jury, confirmed results**
+**2:20–3:00 · Jury, Store trends and RawTree**
 
-> “The simulator recorded [purchases] purchases and [sales] in simulated sales across [displays]
-> confirmed recommendation displays. That's [rate] purchases per 100 displays. Each display is
-> one list the shopper saw. The chart shows the purchase rate in ten-minute windows.”
-
-Read the three cards, display count, and **Feedback through** timestamp from the screen.
-Use **Results so far** while the round is running. If the organizers have published it,
-open **Official competition score** separately. The score also uses purchase probabilities,
-cold-start performance, and reliability.
-
-**1:25–2:10 · Jury, Store trends**
-
-> “Store trends uses RawTree SQL to join live purchases to the catalogue and track demand by
-> subcategory. The multiplier compares a subcategory’s share of store purchases in the last
-> 15 minutes with its share since the simulation began.”
+> “Store trends compares a subcategory’s share of store purchases in the last 15 minutes with
+> its share since the simulation began. The dashboard reads RawTree through its SQL API and
+> matches feedback to our answer by request ID and the exact list shown.”
 
 If the panel has a red outline, read one subcategory, multiplier, and window. In a quiet window,
-point to **No trends detected** and the timestamp.
-
-**2:10–3:00 · RawTree, from request to result**
-
-> “RawTree gives the serving loop each request and the latest catalogue changes. The loop
-> checks availability and writes ten ordered product IDs with the request ID and model version.
-> When feedback arrives, the dashboard checks the request ID and the exact list the shopper
-> saw. That is how a confirmed purchase gets credited to the version shown here.”
-
-Return to the confirmed Final results. Use the [RawTree showcase](#rawtree-showcase) below
-for the optional extended cutaway.
+point to **No trends detected** and the timestamp. Return to the confirmed results.
 
 ### RawTree showcase
 
-For the three-minute take, show **Store trends** while you speak. If you have another minute,
-show this read-and-write path. Use an illustrative request and aggregate results for the recording.
+Use this read-and-write path for questions or the optional fourth minute. Use an illustrative
+request and aggregate results for the recording.
 
 | On screen | What to say |
 | --- | --- |
@@ -99,9 +101,9 @@ uv run python -c "from datetime import UTC, datetime; from dades_huzz.data impor
 
 ### Recording the backup
 
-1. Rehearse the three-minute script with both Jury tabs ready. Open **Final** if the pair has
-   confirmed displays. Keep the round label, model name, feedback timestamp, and demand window
-   visible.
+1. Rehearse the switch from the overnight Team comparison to the Final Jury tab. Keep the
+   Practice backup ready. Show the round label, model name, feedback timestamp, and demand
+   window while recording the Jury view.
 2. Capture only the presentation window. Read the cards as they appear when recording. Keep
    credentials, raw shopper IDs, and notifications outside the recording. Use the saved
    demand replay output if you include the extended RawTree cutaway.
@@ -120,10 +122,11 @@ and the evidence behind it. Reserve the live interaction for the result the jury
 | **2. Why the Final uses two rankers** | Show the overnight practice selection from **01:45–07:00 CET**. Omni Plain led on cold requests and Titan+ ALS led on the rest. The combined **1.57 vs. 1.24 purchases per 100 requests** against Titan+ alone is an expected rate calculated from the separate practice arms. The planned confirmation window did not run. | Why the team chose the pair and how much certainty the practice data provides. |
 | **3. What shoppers bought in the Final** | Show the pair's confirmed simulated sales, purchases, and purchase rate. Read the display count and feedback timestamp. If available, label the official team score separately. | What the simulator recorded for the selected model version. |
 
-**One live interaction after slide 3.** Open the prepared **Jury → Final** tab on the pair.
-Point to the confirmed results. Hover over one bar in **Sales activity over time** to show
-its display count, purchase count, and rate. If the dashboard is unavailable, use a prepared
-still with the round and timestamp visible.
+**One live walkthrough between slides 2 and 3.** Start on the recorded overnight split in
+**Team → Purchase results**. Then switch to the prepared **Jury → Final** tab on the pair.
+Point to the confirmed results and hover over a bar in **Sales activity over time** to show
+its display count, purchase count, and rate. If the dashboard is unavailable, use prepared
+stills of the Team comparison and the Jury results with the round and timestamps visible.
 
 ### Evidence for rehearsal and jury questions
 
