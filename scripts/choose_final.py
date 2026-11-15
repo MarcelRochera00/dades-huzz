@@ -4,8 +4,9 @@
     uv run python scripts/choose_final.py confirm --choice NAME     # 09:15: NAME vs Titan+, 07:15-09:15 CET
 
 Times are CET on the day the command runs; --start/--end (HH:MM, CET) override them. Reads TEAM_ID from .env.
-If 07:00 chooses a pair (cold requests to one arm, the rest to another), it serves as one new version
-wrapping `cold_first(A, B)`; pass that version's name as --choice.
+If 07:00 chooses a pair (cold requests to one arm, the rest to another), it serves as one version named
+`pair:<cold>+<warm>`; pass that name as --choice. Each step prints the exact `--versions` to restart with.
+`choose --candidate NAME` adds a version built during the night as one more arm of the confirmation.
 """
 
 import argparse
@@ -23,6 +24,7 @@ from dades_huzz.evaluation.selection import (
     WINDOWS,
     choose,
     confirm,
+    confirmation_split,
     live_arms,
     paired_windows,
 )
@@ -46,6 +48,10 @@ def main() -> None:
     parser.add_argument("phase", choices=PHASES)
     parser.add_argument(
         "--choice", help="confirm: the chosen model_version serving next to Titan+"
+    )
+    parser.add_argument(
+        "--candidate",
+        help="choose: a version built during the night, confirmed as one more arm",
     )
     parser.add_argument("--start", help="HH:MM CET")
     parser.add_argument("--end", help="HH:MM CET")
@@ -80,11 +86,16 @@ def main() -> None:
             f"\nCHOICE: cold requests -> {best.cold_arm}, the rest -> {best.warm_arm}, "
             f"expected conversion {best.expected_conversion:.2f}"
         )
-        if best.cold_arm == best.warm_arm == TITAN_PLUS:
-            print("Titan+ goes to the final; no confirmation runs (row 61).")
+        split = confirmation_split(best, TITAN_PLUS, args.candidate)
+        if split is None:
+            print(
+                "Titan+ goes to the final; no confirmation runs (row 61). Restart nothing now;"
+                f" at 09:15 restart both machines with:\n    --versions {TITAN_PLUS}=100"
+            )
         else:
             print(
-                f"Next (row 61): serve it at 50 % against {TITAN_PLUS} at 50 % from 07:15 on both machines."
+                f"Next (row 61): from 07:15 restart both machines, {TITAN_PLUS} staying the champion, with:"
+                f"\n    --versions {split}"
             )
         return
 
@@ -107,7 +118,7 @@ def main() -> None:
         f"(bar +{MIN_LEAD:.2f}); windows won {won} of {len(paired)} (bar {MIN_WINDOWS_WON})"
     )
     final = args.choice if confirm(choice, titan, paired) else TITAN_PLUS
-    print(f"FINAL: {final}")
+    print(f"FINAL: {final}\nRestart both machines with:\n    --versions {final}=100")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ numbers; `confirm` checks the pick on fresh data against the arm that has led al
 from dataclasses import dataclass
 from itertools import product
 
+from dades_huzz.serving.split import pair_name
+
 
 @dataclass(frozen=True)
 class ArmResult:
@@ -57,6 +59,28 @@ def choose(arms: list[ArmResult]) -> Choice:
         ),
         key=lambda choice: choice.expected_conversion,
     )
+
+
+def confirmation_split(
+    choice: Choice, titan_plus: str, candidate: str | None = None
+) -> str | None:
+    """The `--versions` to serve from 07:15 while the 07:00 choice is confirmed: Titan+ stays the champion and
+    the choice, under one name (a pair as `pair:<cold>+<warm>`), gets the other half. None when the choice is
+    Titan+ itself and nothing else needs confirming. A `candidate` built during the night joins as one more
+    arm at an equal share (row 63's provision)."""
+    chosen = (
+        choice.cold_arm
+        if choice.cold_arm == choice.warm_arm
+        else pair_name(choice.cold_arm, choice.warm_arm)
+    )
+    challengers = [name for name in (chosen, candidate) if name and name != titan_plus]
+    if not challengers:
+        return None
+    share = 100 // (len(challengers) + 1)
+    shares = [(titan_plus, 100 - share * len(challengers))] + [
+        (name, share) for name in challengers
+    ]
+    return ",".join(f"{name}={share}" for name, share in shares)
 
 
 MIN_LEAD = 0.10

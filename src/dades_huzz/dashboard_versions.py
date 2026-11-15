@@ -3,6 +3,8 @@
 import hashlib
 from typing import NamedTuple
 
+from dades_huzz.serving.split import pair_arms
+
 
 class VersionStyle(NamedTuple):
     colour: str
@@ -122,8 +124,15 @@ UNDESCRIBED = "No description yet: add it to VERSION_STYLES in dashboard_version
 
 
 def version_style(name: str) -> VersionStyle:
-    """The version's style; a version not described yet gets a spare colour that depends only on its name."""
+    """The version's style; a version not described yet gets a spare colour that depends only on its name.
+    A pair (`pair:<cold>+<warm>`) is described by its two versions."""
     if name in VERSION_STYLES:
         return VERSION_STYLES[name]
     index = hashlib.sha256(name.encode()).digest()[0] % len(SPARE_COLOURS)
+    if arms := pair_arms(name):
+        cold, warm = arms
+        return VersionStyle(
+            SPARE_COLOURS[index],
+            f"A pair: cold requests get {cold}, every other request gets {warm}.",
+        )
     return VersionStyle(SPARE_COLOURS[index], UNDESCRIBED)

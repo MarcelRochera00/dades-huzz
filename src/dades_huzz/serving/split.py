@@ -8,7 +8,8 @@ The first version listed is the champion (GLOSSARY.md): it answers in the loop i
 a challenger, with a time limit per request. A challenger that misses it or raises gives way to the champion
 for that shopper. A challenger slow on average is taken out for OUT_FOR_MS, also across restarts and
 laptops (`versions.load_split` records it). One that cannot load is left out, and the champion answers its
-share. The versions themselves are listed in `versions.py`.
+share. The versions themselves are listed in `versions.py`; two of them can serve as one pair,
+`pair:<cold>+<warm>`.
 """
 
 import gc
@@ -47,6 +48,24 @@ def parse_split(text: str) -> dict[str, int]:
             raise ValueError(f"{name!r} appears twice in {text!r}")
         shares[name] = int(share)
     return shares
+
+
+PAIR = "pair:"
+"""`pair:<cold>+<warm>` names a pair (GLOSSARY.md): two versions serving as one, the first answering
+cold requests and the second the rest (docs/experiments.md row 61's 07:00 choice)."""
+
+
+def pair_name(cold: str, warm: str) -> str:
+    """The name under which `cold` (for cold requests) and `warm` (for the rest) serve as one version."""
+    return f"{PAIR}{cold}+{warm}"
+
+
+def pair_arms(name: str) -> tuple[str, str] | None:
+    """(cold version, warm version) if `name` is written as a pair, else None."""
+    if not name.startswith(PAIR):
+        return None
+    cold, _, warm = name[len(PAIR) :].partition("+")
+    return cold, warm
 
 
 class Split:
