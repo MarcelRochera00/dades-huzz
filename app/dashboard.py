@@ -691,26 +691,24 @@ def jury_trend(rows: list[JuryBucket]) -> None:
 
 
 def jury_demand() -> None:
-    st.subheader("Where store demand is rising")
     end = min(clock_slot(), datetime.fromtimestamp(FINAL_END_MS / 1000, UTC))
     snapshot = fetch_latest("jury_demand", lambda: (end, demand_data(end)))
-    if snapshot is None:
-        return
-    end, trends = snapshot
-    st.caption(
-        f"Simulated store purchases · 15 minutes ending {local_time(end.timestamp())}"
+    key = (
+        "dashboard-panel-jury-trends-active"
+        if snapshot and snapshot[1]
+        else "dashboard-panel-jury-trends"
     )
-    st.markdown(
-        "The multiplier compares a subcategory’s share of all store purchases in this "
-        "window with its share since the simulation began. For example, **6% in this "
-        "window ÷ 1% since the start = 6×**."
-    )
-    if not trends:
-        st.markdown(
-            "No unusual shifts in demand in this window. In Saturday’s practice replay, "
-            "Game Consoles peaked at **6.98× its share since the simulation began**."
+    with st.container(key=key, border=True):
+        st.subheader("Store trends")
+        if snapshot is None:
+            return
+        end, trends = snapshot
+        st.caption(
+            f"Simulated store purchases · 15 minutes ending {local_time(end.timestamp())}"
         )
-    else:
+        if not trends:
+            st.markdown("No trends detected.")
+            return
         frame = pd.DataFrame(
             trends[:5], columns=["Subcategory", "Purchase share multiple"]
         )

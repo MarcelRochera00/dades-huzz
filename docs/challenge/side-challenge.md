@@ -66,8 +66,8 @@ presenter can choose another version or open the results labeled **Practice**.
 The chart defaults to purchase rate over time and can show raw purchase counts. Each window
 shows its display count.
 
-Show which store subcategories are gaining purchase share using the serving detector’s
-15-minute multiplier. Label the store activity window and explain how the multiplier is calculated.
+In **Store trends**, show subcategories flagged by the serving detector’s 15-minute purchase
+share multiplier. Label the window and comparison, and highlight the panel when a trend is detected.
 
 Keep the official team score available separately once the organizers publish it. It uses the
 simulator’s purchase probabilities and other scoring components.
