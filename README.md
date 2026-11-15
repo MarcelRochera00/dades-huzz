@@ -1,6 +1,6 @@
-# dades-huzz · A recommender that answers in under 3 seconds and never sleeps
+# Dades-huzz · A recommender that answers in under 3 seconds and never sleeps
 
-Team 2's entry for the **Datathon FME 2026 · RawTree Real-Time Recommendation** challenge. About three
+Our Team 2's entry for the **Datathon FME 2026 · RawTree Real-Time Recommendation** challenge. About three
 shoppers a second reach an online shop's carousel. For each one we have **3 seconds** to choose the **10
 products** they see, and a hidden simulator decides whether they buy. Only Sunday 10:00–12:00 CET is scored.
 
