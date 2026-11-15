@@ -217,6 +217,21 @@ details p { margin-top: 8px; color: var(--muted); }
   </section>
 
   <section>
+    <span class="eyebrow">Con más tiempo</span>
+    <h2>Cómo habríamos seguido</h2>
+    <p>Tres pasos, en este orden, cada uno apoyado en algo que ya medimos.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Paso</th><th>Por qué</th><th>Fila</th></tr></thead>
+      <tbody>
+        <tr><td><b>1. Más candidatos, y reentrenar con ellos</b></td><td>Nuestros modelos eligen entre unos 140 productos por petición, y ahí solo está el 29 % de lo que la gente compra. Llegando más hondo en cada categoría se alcanza el 49 %. Lo probamos sin reentrenar y el paquete que lo incluía no ganó en vivo: el modelo había aprendido solo con los 30 primeros de cada categoría. Lo siguiente es ampliar y volver a entrenar con esos productos.</td><td class="n">54, 60</td></tr>
+        <tr><td><b>2. Enseñar productos nuevos</b></td><td>Son el 5,3 % de las compras de la tienda y casi no aparecen en nuestras listas. Forzarlos en los huecos 9 y 10 perdía; haría falta que el modelo los puntúe con señales propias (categoría, precio, primeras ventas).</td><td class="n">65</td></tr>
+        <tr><td><b>3. Reentrenar solo, cada hora</b></td><td>Hoy los pesos se recalculan a mano con un comando. El modelo mejoró cada vez que lo reentrenamos con más feedback, así que lo natural es que lo haga solo y que un torneo decida si el nuevo entra.</td><td class="n">45, 59</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note"><b>Y antes que nada,</b> las dos horas de confirmación de la pareja que no pudimos hacer.</p>
+  </section>
+
+  <section>
     <span class="eyebrow">Lo que no está demostrado</span>
     <h2>Dos cosas que hay que decir nosotros antes de que las pregunten</h2>
     <p class="note"><b>La confirmación no se hizo.</b> El plan escrito era elegir a las 07:00 y comprobar la elección dos horas más contra Titan+. Nos quedamos sin tiempo: con 50 minutos no se distingue una mejora de 0,10. Elegimos con 5 horas de datos y unas 14.000 peticiones por modelo, y dejamos la vuelta atrás preparada.</p>
@@ -246,7 +261,7 @@ details p { margin-top: 8px; color: var(--muted); }
       <dt>0:35</dt><dd><b>Diapositiva 2. El camino en cinco pasos.</b> Una frase y un número por paso; no se leen nombres de versiones.</dd>
       <dt>1:35</dt><dd><b>Diapositiva 3. La pareja final.</b> El gráfico de barras y las dos cosas no demostradas.</dd>
       <dt>2:15</dt><dd><b>Demo (Miles), dashboard, vista Jury, ronda Final.</b> Dos cosas, no más: las compras registradas con nuestra versión durante la final, y dónde sube la demanda por subcategoría, que sale de SQL sobre RawTree. Si el dashboard falla, la pestaña de Practice o el vídeo de respaldo.</dd>
-      <dt>3:30</dt><dd><b>Diapositiva 4. Qué aprende del stream y qué descartamos.</b> Las cinco ideas que no pasaron su listón, y qué haríamos después.</dd>
+      <dt>3:30</dt><dd><b>Diapositiva 4. Qué aprende, qué descartamos y cómo seguiríamos.</b> Las cinco ideas que no pasaron su listón y los tres pasos siguientes.</dd>
       <dt>4:00</dt><dd>Preguntas.</dd>
     </dl>
     <p class="note"><b>Por decidir con Miles.</b> Su guion (PR #47) está escrito sobre las reglas del sábado, Destroyer y Terminator. Para la demo basta la parte de "compras en la final" y "dónde sube la demanda"; la comparación Destroyer frente a los más vendidos ya la cuenta la diapositiva 2. Falta comprobar con qué nombre aparece la pareja en el selector de versión del dashboard.</p>

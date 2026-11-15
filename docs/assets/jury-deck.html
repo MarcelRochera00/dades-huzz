@@ -46,16 +46,18 @@ section.dark { background: #12222a; color: #f5f7f8; }
 .step { flex: 1; background: #ffffff; border-top: 6px solid #0b6f78; padding: 28px 24px; display: flex; flex-direction: column; gap: 14px; }
 .step-last { background: #12222a; border-top: 6px solid #6fd0d8; }
 .step-n { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 24px; font-weight: 600; color: #0b6f78; }
-.step-t { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 30px; font-weight: 600; line-height: 1.15; color: #15242c; height: 105px; }
-.step-num { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 60px; font-weight: 700; line-height: 1.05; color: #15242c; }
-.step-c { font-size: 24px; line-height: 1.35; color: #4c5d66; }
-.step-why { font-size: 22px; line-height: 1.3; font-weight: 600; color: #0b6f78; border-top: 2px solid #c9d5da; padding-top: 12px; }
-.step-last .step-why { color: #6fd0d8; border-top: 2px solid #35505b; }
+.step-t { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 36px; font-weight: 600; line-height: 1.15; color: #15242c; height: 126px; }
+.step-num { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 84px; font-weight: 700; line-height: 1.05; color: #15242c; }
+.step-c { font-size: 26px; line-height: 1.3; color: #4c5d66; }
+.step-why { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 20px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #cc6a16; border-top: 2px solid #c9d5da; padding-top: 14px; }
+.step-gap { font-size: 26px; line-height: 1.25; font-weight: 600; color: #15242c; margin-top: -8px; }
+.step-last .step-why { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 20px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #cc6a16; border-top: 2px solid #c9d5da; padding-top: 14px; }
+.step-gap { font-size: 26px; line-height: 1.25; font-weight: 600; color: #15242c; margin-top: -8px; }
 .step .spacer { flex: 1; }
 .step-last .step-n { color: #6fd0d8; }
-.step-last .step-t { color: #f5f7f8; }
-.step-last .step-num { color: #f5f7f8; }
-.step-last .step-c { color: #bfd3d9; }
+.step-last .step-t { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 36px; font-weight: 600; line-height: 1.15; color: #15242c; height: 126px; }
+.step-last .step-num { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 84px; font-weight: 700; line-height: 1.05; color: #15242c; }
+.step-last .step-c { font-size: 26px; line-height: 1.3; color: #4c5d66; }
 .foot { font-size: 24px; color: #4c5d66; }
 /* final pair */
 .cols { display: flex; flex-direction: row; gap: 72px; align-items: flex-start; }
@@ -85,6 +87,19 @@ section.dark { background: #12222a; color: #f5f7f8; }
 .learn-t { font-size: 28px; font-weight: 600; color: #15242c; }
 .learn-c { font-size: 24px; line-height: 1.35; color: #4c5d66; }
 .fails { font-size: 24px; color: #15242c; }
+.unit { font-size: 24px; color: #8fa7b0; }
+.sub-warn { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 22px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #b85c10; margin-top: 16px; }
+.cols3 { display: flex; flex-direction: row; gap: 40px; align-items: stretch; }
+.col3 { flex: 1; background: #ffffff; border-top: 6px solid #0b6f78; padding: 32px 30px; display: flex; flex-direction: column; gap: 18px; }
+.col3-next { background: #12222a; border-top: 6px solid #6fd0d8; }
+.item { font-size: 28px; line-height: 1.3; color: #15242c; border-top: 2px solid #e3ebee; padding-top: 16px; }
+.col3-next .item { color: #f5f7f8; border-top: 2px solid #35505b; }
+.col3-next .sub { color: #6fd0d8; }
+.next-num { font-family: 'Space Grotesk', Arial, sans-serif; font-size: 96px; font-weight: 700; line-height: 1; color: #f5f7f8; }
+.next-lab { font-size: 26px; line-height: 1.3; color: #bfd3d9; }
+.step.step-last .step-t, .step.step-last .step-num { color: #f5f7f8; }
+.step.step-last .step-c { color: #bfd3d9; }
+.step.step-last .step-why { color: #6fd0d8; border-top: 2px solid #35505b; }
 </style>
 </head>
 <body>
@@ -92,27 +107,28 @@ section.dark { background: #12222a; color: #f5f7f8; }
 <section id="resultado" class="dark" data-transition="fade">
 <p class="eyebrow">Datathon FME 2026 · Reto RawTree · Equipo 02</p>
 <h1 class="hero">3 segundos para elegir 10 productos</h1>
-<p class="lede">Cada pocos segundos llega un comprador. Un recomendador que aprende de sus propias respuestas decide qué ve. Medimos en compras esperadas por cada 100 peticiones.</p>
+<p class="lede">Un recomendador que aprende de sus propias respuestas.</p>
 <div class="spacer"></div>
 <div class="kpis">
-<div class="kpi"><p class="kpi-num">0,7</p><p class="kpi-lab">Punto de partida: los 10 más vendidos para todos</p></div>
-<div class="kpi"><p class="kpi-num">1,57</p><p class="kpi-lab">Nuestra versión final, en la última noche de práctica</p></div>
-<div class="kpi"><p class="kpi-num">[__]</p><p class="kpi-lab">Ronda final, 10:00–12:00: puesto [__] de 42</p></div>
+<div class="kpi"><p class="kpi-num">0,7</p><p class="kpi-lab">Punto de partida</p></div>
+<div class="kpi"><p class="kpi-num">1,57</p><p class="kpi-lab">Nuestra versión final</p></div>
+<div class="kpi"><p class="kpi-num">[__]</p><p class="kpi-lab">Ronda final · puesto [__] de 42</p></div>
 </div>
+<p class="unit">Compras esperadas por cada 100 peticiones</p>
 <aside>0:00–0:35. La tienda nos da 3 segundos por comprador para elegir 10 productos, y un simulador decide si compra. Todo lo medimos igual: compras esperadas por cada 100 peticiones. Empezamos con lo que dan los organizadores, los más vendidos para todos: 0,7. Acabamos con un sistema que aprende de lo que pasa con sus propias respuestas: 1,57. Os contamos cómo llegamos ahí en cinco pasos y qué no sabemos todavía. (Rellenar la tercera cifra con el ranking final de las 12:00.)</aside>
 </section>
 
 <section id="camino" data-transition="fade">
-<p class="eyebrow">El camino · cada paso responde a lo que faltaba en el anterior</p>
-<h2 class="title">De los más vendidos a un modelo que aprende</h2>
+<p class="eyebrow">El camino</p>
+<h2 class="title">Cada paso responde a lo que faltaba</h2>
 <div class="steps">
-<div class="step"><p class="step-n">1 · Partida</p><h3 class="step-t">A todos lo mismo</h3><p class="step-num">0,7</p><p class="step-c">compras por cada 100 peticiones con los 10 más vendidos. Es la vara de medir.</p><div class="spacer"></div><p class="step-why">Falta: no usa nada del comprador.</p></div>
-<div class="step"><p class="step-n">2 · Reglas</p><h3 class="step-t">Lo que miras dice qué quieres</h3><p class="step-num">0,92</p><p class="step-c">frente a 0,76 de la partida, en vivo y a la misma hora. Regla: lo más vendido de la categoría que estás viendo.</p><div class="spacer"></div><p class="step-why">Falta: las reglas tocan techo y no sabemos qué señal pesa.</p></div>
-<div class="step"><p class="step-n">3 · Diagnóstico</p><h3 class="step-t">Mirar qué se compra de lo que enseñamos</h3><p class="step-num">24×</p><p class="step-c">más ventas del mismo hueco si el producto es de la categoría donde ese comprador más ha comprado.</p><div class="spacer"></div><p class="step-why">Falta: hay varias señales a la vez. ¿Cuánto pesa cada una?</p></div>
-<div class="step"><p class="step-n">4 · Aprender</p><h3 class="step-t">Los pesos los aprende el modelo</h3><p class="step-num">1,03</p><p class="step-c">frente a 0,85 de la mejor regla, en el mismo torneo. Regresión logística: pocas compras, pesos que se leen.</p><div class="spacer"></div><p class="step-why">Falta: ningún modelo gana con todos los compradores.</p></div>
-<div class="step step-last"><p class="step-n">5 · Torneos</p><h3 class="step-t">Cada petición, al modelo que mejor la resuelve</h3><p class="step-num">1,57</p><p class="step-c">frente a 1,24 del mejor modelo solo, en las mismas horas.</p><div class="spacer"></div><p class="step-why">La versión final.</p></div>
+<div class="step"><p class="step-n">1 · Partida</p><h3 class="step-t">A todos lo mismo</h3><p class="step-num">0,7</p><p class="step-c">los 10 más vendidos</p><div class="spacer"></div><p class="step-why">Falta</p><p class="step-gap">No usa al comprador</p></div>
+<div class="step"><p class="step-n">2 · Reglas</p><h3 class="step-t">Lo que miras dice qué quieres</h3><p class="step-num">0,92</p><p class="step-c">frente a 0,76 de la partida</p><div class="spacer"></div><p class="step-why">Falta</p><p class="step-gap">Las reglas tocan techo</p></div>
+<div class="step"><p class="step-n">3 · Diagnóstico</p><h3 class="step-t">Mirar qué se compra</h3><p class="step-num">24×</p><p class="step-c">más ventas en la categoría favorita del comprador</p><div class="spacer"></div><p class="step-why">Falta</p><p class="step-gap">¿Cuánto pesa cada señal?</p></div>
+<div class="step"><p class="step-n">4 · Aprender</p><h3 class="step-t">Los pesos los aprende el modelo</h3><p class="step-num">1,03</p><p class="step-c">frente a 0,85 de la mejor regla</p><div class="spacer"></div><p class="step-why">Falta</p><p class="step-gap">Ninguno gana con todos</p></div>
+<div class="step step-last"><p class="step-n">5 · Torneos</p><h3 class="step-t">Cada petición, a su mejor modelo</h3><p class="step-num">1,57</p><p class="step-c">frente a 1,24 del mejor modelo solo</p><div class="spacer"></div><p class="step-why">Versión final</p></div>
 </div>
-<p class="foot">Compras esperadas por cada 100 peticiones. La cifra cambia con la hora: cada una se compara con su referencia en los mismos minutos. Detalle en docs/experiments.md.</p>
+<p class="foot">Compras esperadas por cada 100 peticiones, cada cifra frente a su referencia a la misma hora.</p>
 <aside>0:35–1:35. Cada paso responde a lo que le faltaba al anterior. Uno: los más vendidos para todos, 0,7. No usa nada del comprador. Dos: una regla simple, lo más vendido de la categoría que estás mirando. La probamos primero con el registro antiguo de la tienda y luego en vivo: 0,92 frente a 0,76 a la misma hora. Pero todas las reglas se quedaban en el mismo techo. Tres: en vez de inventar más reglas, miramos qué se compraba de lo que enseñábamos. En el mismo hueco, un producto de la categoría donde ese comprador más ha comprado se vendía 24 veces más. Había varias señales así, y a mano no sabíamos cuánto pesar cada una. Cuatro: que lo aprenda un modelo, con nuestras propias respuestas. Elegimos una regresión logística: la pregunta es sí o no, teníamos solo unas 500 compras, y los árboles que probamos empataron, así que nos quedamos con el que se puede leer. Ganó a la mejor regla, 1,03 frente a 0,85. Cinco: torneos en vivo, y de ahí la versión final.</aside>
 </section>
 
@@ -135,13 +151,14 @@ section.dark { background: #12222a; color: #f5f7f8; }
 <div class="row"><p class="row-l">Omni</p><div class="track"><div class="bar-warm-dim" style="width:61%"></div></div><p class="row-v">1,22</p></div>
 <div class="row"><p class="row-l">Titan+</p><div class="track"><div class="bar-warm-dim" style="width:56.5%"></div></div><p class="row-v">1,13</p></div>
 </div>
-<p class="foot">Compras esperadas por cada 100 peticiones. Dom 01:45–07:00, cuatro modelos a la vez, unas 14.000 peticiones cada uno.</p>
+<p class="foot">Compras esperadas por cada 100 peticiones · cuatro modelos a la vez, 5 horas.</p>
 </div>
 <div class="col-side">
 <p class="big">1,57</p>
-<p class="big-lab">sirviendo los dos, frente a 1,24 del mejor modelo solo</p>
-<div class="caveat"><p class="caveat-t">No lo confirmamos dos horas más</p><p class="caveat-c">Era el plan. Sin tiempo, elegimos con 5 horas de datos.</p></div>
-<div class="caveat"><p class="caveat-t">El comprador nuevo llega sin pasado</p><p class="caveat-c">Al empezar puede no haber ventaja; debería aparecer según actúe.</p></div>
+<p class="big-lab">los dos juntos, frente a 1,24 del mejor solo</p>
+<p class="sub-warn">Sin demostrar</p>
+<div class="caveat"><p class="caveat-t">No lo confirmamos dos horas más</p></div>
+<div class="caveat"><p class="caveat-t">El comprador nuevo llega sin pasado</p></div>
 </div>
 </div>
 <aside>1:35–2:15. Por la noche compitieron cuatro modelos con una cuarta parte del tráfico cada uno. Ninguno ganó en todo. Con compradores nuevos gana el que lee lo que el comprador ha hecho hoy: 1,90 frente a 1,39. Con compradores conocidos gana, por poco, el que añade su gusto histórico. Así que servimos los dos: cada petición va al modelo que mejor la resuelve. Dos cosas que no hemos demostrado. Habíamos escrito que confirmaríamos la elección dos horas más y no nos dio tiempo. Y en la final los compradores nuevos llegan sin nada hecho hoy, y en nuestra simulación de ese caso la ventaja desaparece. Es el riesgo que asumimos: esperamos que aparezca según los compradores actúan. Ahora lo vemos en vivo. (2:15–3:30, demo de Miles: dashboard, vista Jury, ronda Final. Primero las compras registradas con nuestra versión en la final; después dónde sube la demanda, que sale de SQL sobre RawTree. Volver a la última diapositiva.)</aside>
@@ -149,28 +166,33 @@ section.dark { background: #12222a; color: #f5f7f8; }
 
 <section id="aprendido">
 <p class="eyebrow">Lo aprendido</p>
-<h2 class="title">Qué aprende del stream y qué descartamos</h2>
-<div class="cols">
-<div class="col-half">
+<h2 class="title">Qué aprende, qué descartamos, cómo seguiríamos</h2>
+<div class="cols3">
+<div class="col3">
 <h3 class="sub">Aprende mientras sirve</h3>
-<div class="learn"><p class="learn-t">De sus propias respuestas</p><p class="learn-c">El modelo se entrena con 112.000 respuestas nuestras y sus 1.100 compras.</p></div>
-<div class="learn"><p class="learn-t">De lo que pasa hoy</p><p class="learn-c">Ventas en vivo, productos nuevos y lo que cada comprador mira y guarda.</p></div>
-<div class="learn"><p class="learn-t">De comparar en vivo</p><p class="learn-c">Cinco torneos: tráfico repartido, misma hora, gana el dato.</p></div>
+<p class="item">De sus propias respuestas</p>
+<p class="item">De lo que pasa hoy en la tienda</p>
+<p class="item">De comparar versiones en vivo</p>
 </div>
-<div class="col-half">
-<h3 class="sub">Cinco ideas que no pasaron su listón</h3>
-<table class="fails">
-<tr><th style="width:62%">Idea</th><th style="width:38%">Resultado</th></tr>
-<tr><td>“Quien vio esto vio aquello”</td><td>No mejora</td></tr>
-<tr><td>Otro orden para nuevos</td><td>No mejora</td></tr>
-<tr><td>Entrenar con las compras de la tienda</td><td>Ordena peor</td></tr>
-<tr><td>Forzar productos nuevos</td><td>Acierta menos</td></tr>
-<tr><td>Marca, subcategoría, calidad</td><td>Sin mejora</td></tr>
-</table>
-<p class="foot">El listón se escribe antes de ejecutar: quien no lo pasa no entra. Siguiente paso: más candidatos, no mejor orden.</p>
+<div class="col3">
+<h3 class="sub">5 ideas descartadas</h3>
+<p class="item">“Quien vio esto vio aquello”</p>
+<p class="item">Otro orden para nuevos</p>
+<p class="item">Entrenar con todas las compras</p>
+<p class="item">Forzar productos nuevos</p>
+<p class="item">Marca, subcategoría, calidad</p>
+<p class="foot">Listón escrito antes. Ninguna lo pasó.</p>
+</div>
+<div class="col3 col3-next">
+<h3 class="sub">Cómo seguiríamos</h3>
+<p class="next-num">29 %</p>
+<p class="next-lab">de lo que se compra está entre nuestros candidatos</p>
+<p class="item">1 · Más candidatos, y reentrenar con ellos</p>
+<p class="item">2 · Enseñar productos nuevos</p>
+<p class="item">3 · Reentrenar solo, cada hora</p>
 </div>
 </div>
-<aside>3:30–4:00. El sistema aprende de tres sitios: de sus propias respuestas, de lo que pasa hoy en la tienda y de comparar versiones en vivo. Y esta noche probamos cinco ideas más. Cada una tenía su listón escrito antes de ejecutarla, y ninguna lo pasó, así que ninguna entró. Lo que haríamos con más tiempo: nuestros modelos eligen entre candidatos que solo cubren el 29 % de lo que la gente compra. Ahí está la distancia con el líder, no en ordenar mejor. Gracias.</aside>
+<aside>3:30–4:00. El sistema aprende de tres sitios: de sus propias respuestas, de lo que pasa hoy en la tienda y de comparar versiones en vivo. Y esta noche probamos cinco ideas más. Cada una tenía su listón escrito antes de ejecutarla, y ninguna lo pasó, así que ninguna entró. Cómo seguiríamos. Uno: nuestros modelos eligen entre candidatos que solo contienen el 29 % de lo que la gente compra. Ahí está la distancia con el líder, no en ordenar mejor; probamos ampliar la lista sin reentrenar y no ganó, así que toca ampliar y reentrenar con ellos. Dos: los productos nuevos son el 5 % de las compras y casi no los enseñamos. Tres: que el modelo se reentrene solo cada hora en vez de a mano. Gracias.</aside>
 </section>
 </div>
 <div id="notes"></div>
