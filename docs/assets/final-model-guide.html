@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camino al modelo final</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body { margin: 0; }
+/* Layout: one reading column; the five steps form a vertical line of stations, each with its number on the right. */
+:root {
+  --bg: #f5f7f8; --panel: #ffffff; --fg: #15242c; --muted: #566770; --line: #d5dde1;
+  --accent: #0b6f78; --cold: #2a6fdb; --warm: #cc6a16; --ok: #1f7a4d; --warn: #a8570a; --soft: #e6eef0;
+  --display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f191e; --panel: #162329; --fg: #e4ecef; --muted: #9bb0b9; --line: #2a3b43;
+  --accent: #4fc3cc; --cold: #7aa9f5; --warm: #f0a35a; --ok: #5fcf97; --warn: #f0b060; --soft: #1c2d34; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f191e; --panel: #162329; --fg: #e4ecef; --muted: #9bb0b9; --line: #2a3b43;
+  --accent: #4fc3cc; --cold: #7aa9f5; --warm: #f0a35a; --ok: #5fcf97; --warn: #f0b060; --soft: #1c2d34; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+.wrap { max-width: 860px; margin-inline: auto; display: flex; flex-direction: column; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.7rem); font-weight: 700; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+h3 { font-size: 1.08rem; font-weight: 500; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font-family: var(--mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.lead { font-size: 1.12rem; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+.src { font-family: var(--mono); font-size: .76rem; color: var(--muted); }
+.final { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.final .big { font-family: var(--display); font-size: clamp(1.25rem, 3.4vw, 1.7rem); font-weight: 700; }
+.route { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.route > div { background: var(--soft); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.route b { display: block; }
+.tag-cold { color: var(--cold); } .tag-warm { color: var(--warm); }
+/* steps */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.steps li { display: grid; grid-template-columns: 44px 1fr; gap: 16px; padding-bottom: 26px; position: relative; }
+.steps li::before { content: ""; position: absolute; left: 21px; top: 44px; bottom: 0; width: 2px; background: var(--line); }
+.steps li:last-child::before { display: none; }
+.dot { width: 44px; height: 44px; border-radius: 50%; background: var(--accent); color: var(--bg); font-family: var(--display); font-weight: 700; display: grid; place-items: center; font-size: 1.1rem; }
+.step-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.num { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+.num strong { font-family: var(--display); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.crit { display: inline-block; font-size: .74rem; font-family: var(--mono); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--muted); margin-right: 6px; }
+/* chart */
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.grp { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: 130px 1fr 44px; gap: 10px; align-items: center; font-size: .88rem; }
+.track { background: var(--soft); border-radius: 4px; height: 16px; }
+.bar { height: 16px; border-radius: 4px; }
+.bar.cold { background: var(--cold); } .bar.warm { background: var(--warm); }
+.bar.dim { opacity: .38; }
+.val { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.win { font-weight: 600; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+details + details { margin-top: -6px; }
+summary { cursor: pointer; font-weight: 600; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+details p { margin-top: 8px; color: var(--muted); }
+.why, .next { color: var(--muted); }
+.why b, .next b { color: var(--fg); }
+.next { border-left: 3px solid var(--accent); padding-left: 12px; }
+.note { border-left: 3px solid var(--warn); padding: 4px 0 4px 14px; color: var(--muted); }
+.clock { display: grid; grid-template-columns: 74px 1fr; gap: 6px 14px; }
+.clock dt { font-family: var(--mono); color: var(--accent); }
+.clock dd { margin: 0; }
+@media (max-width: 520px) { .route { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 96px 1fr 40px; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <section>
+      <span class="eyebrow">Datathon FME 2026 · RawTree · equipo 02</span>
+      <h1>Cómo llegamos al modelo final</h1>
+      <p class="lead">Hemos probado 67 cosas y muchos nombres. Esta página deja solo lo que hay que saber para defenderlo: qué sirve hoy, por qué lo elegimos y qué número lo respalda. Cada paso tiene una frase, un número y el motivo.</p>
+    </section>
+  </header>
+
+  <section>
+    <div class="final">
+      <span class="eyebrow">Lo que responde en la ronda final</span>
+      <div class="big">Dos modelos, cada uno donde gana</div>
+      <div class="route">
+        <div><b class="tag-cold">Petición "cold"</b>Comprador nuevo, o que ha visto un producto recién añadido. Responde <b>Omni plain</b>: un ranker aprendido que también lee lo que el comprador ha hecho hoy.</div>
+        <div><b class="tag-warm">El resto</b>Compradores con historial. Responde <b>Titan+ ALS</b>: un ranker aprendido que añade el gusto de cada comprador sacado de su historial.</div>
+      </div>
+      <p>Compras esperadas por cada 100 peticiones con la pareja, en la noche: <b>1,57</b>, frente a <b>1,24</b> de Titan+ solo, que era nuestro mejor modelo único.</p>
+      <span class="src">Fuente: scripts/choose_final.py choose · leaderboard por versión · dom 01:45–07:00 CET · ~14.000 peticiones por modelo · 1,24 = media de Titan+ con su mezcla cold/warm</span>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">El camino</span>
+    <h2>Cinco pasos: cada uno responde a lo que le faltaba al anterior</h2>
+    <p class="note"><b>Cómo leer los números.</b> Casi todos son <b>compras esperadas por cada 100 peticiones</b>: la cifra del simulador que puntúa el reto. Cambia con la hora del día, así que cada una va con su referencia medida en los mismos minutos. No se comparan cifras de pasos distintos entre sí.</p>
+    <ol class="steps">
+      <li><div class="dot">1</div><div class="step-body">
+        <h3>A todos lo mismo: los 10 más vendidos</h3>
+        <p>Es el recomendador que dan los organizadores. No sabe nada de quién compra.</p>
+        <div class="num"><strong>≈ 0,7</strong><span>compras esperadas por cada 100 peticiones (entre 0,69 y 0,79 según la hora)</span></div>
+        <p class="why"><b>Por qué empezamos aquí.</b> Es la vara de medir: todo lo demás se compara con esto en los mismos minutos.</p>
+        <p class="next"><b>Qué faltaba.</b> No usa nada del comprador, y la petición ya nos dice qué está mirando.</p>
+        <span class="src">experiments.md · filas 17 y 20</span>
+      </div></li>
+      <li><div class="dot">2</div><div class="step-body">
+        <h3>Reglas: lo que estás mirando dice qué quieres</h3>
+        <p>Regla escrita a mano: enseñar lo más vendido de la categoría que el comprador está viendo. Es la familia "Tati".</p>
+        <div class="num"><strong>0,92 vs 0,76</strong><span>compras esperadas por cada 100 peticiones: la regla frente a los más vendidos, en vivo, la misma hora, mitad de las peticiones para cada uno</span></div>
+        <div class="num"><strong>2,6×</strong><span>era lo que prometía antes de salir, al repetir el registro antiguo de la tienda con la regla nueva (intervalo 2,25 a 2,93)</span></div>
+        <p class="why"><b>Por qué así.</b> Una regla es barata y se explica sola. La probamos offline antes de gastar tráfico real, con el listón escrito antes de ejecutar. En vivo ganó por menos de lo prometido (entre 1,2× y 1,4×, no 2,6×): desde entonces la medida que manda es la de vivo.</p>
+        <p class="next"><b>Qué faltaba.</b> Hicimos más reglas y todas quedaron en el mismo techo, entre 2 y 2,6 veces la partida de su hora. No sabíamos qué señal era la que importaba.</p>
+        <div><span class="crit">Método</span><span class="src">filas 5, 17 y 37</span></div>
+      </div></li>
+      <li><div class="dot">3</div><div class="step-body">
+        <h3>Diagnóstico: mirar qué se compra de lo que enseñamos</h3>
+        <p>En vez de inventar otra regla, cruzamos nuestras respuestas con lo que el simulador compró. Tomamos siempre el primer hueco del carrusel y compradores con historial, y cambiamos una sola cosa: de qué categoría es el producto.</p>
+        <div class="num"><strong>24×</strong><span>más compras si el producto es de la categoría donde ese comprador más ha comprado</span></div>
+        <p>Las dos cifras detrás del 24×, en compras por cada 100 veces que enseñamos un producto en el primer hueco:</p>
+        <div class="num"><strong>0,03</strong><span>si el comprador nunca había comprado en esa categoría (182.800 veces mostrado)</span></div>
+        <div class="num"><strong>0,77</strong><span>si más de la mitad de sus compras pasadas eran de esa categoría (36.080 veces mostrado, 89 compras)</span></div>
+        <p class="why"><b>Por qué importa.</b> Las reglas usaban la categoría que el comprador mira ahora. Esto dice que dónde ha comprado antes pesa todavía más, también cuando hoy mira otra cosa.</p>
+        <p class="next"><b>Qué faltaba.</b> Ya había varias señales buenas a la vez (categoría favorita, ventas, lo visto en la sesión). A mano no sabíamos cuánto pesar cada una.</p>
+        <div><span class="crit">Aprender del stream</span><span class="crit">RawTree (SQL)</span><span class="src">fila 35</span></div>
+      </div></li>
+      <li><div class="dot">4</div><div class="step-body">
+        <h3>Aprender: los pesos los decide el modelo, no nosotros</h3>
+        <p>Es la familia "Lauri". Para cada producto candidato calcula 13 señales y las combina en una probabilidad de compra; los 10 con más probabilidad son la respuesta. Los pesos salen de lo que los compradores hicieron ante nuestras propias respuestas, y se vuelven a calcular cuando llega más feedback.</p>
+        <div class="num"><strong>1,03 vs 0,85</strong><span>compras esperadas por cada 100 peticiones: el modelo frente a la mejor regla, en vivo, en el mismo torneo</span></div>
+        <p class="why"><b>Por qué una regresión logística.</b> Tres razones. La pregunta es de sí o no (¿se compra este producto?), que es lo que este modelo estima. Teníamos pocas compras, 534 entre 651.000 productos mostrados, y un modelo con 13 pesos no se las aprende de memoria. Y probamos árboles potenciados con los mismos datos: empataron (−953 frente a −959 en datos apartados, con 140 compras), así que nos quedamos con el que se puede leer.</p>
+        <p class="why"><b>Cómo supimos que funcionaba antes de salir.</b> Entrenamos con todo menos los últimos 90 minutos y predijimos esos 90 minutos. El listón, escrito antes: predecir mejor que "hueco + producto ya visto". Lo pasó (−959 frente a −1.302; más cerca de cero es mejor). Los pesos mayores fueron la categoría favorita y las ventas: lo mismo que decía el diagnóstico.</p>
+        <p class="next"><b>Qué faltaba.</b> Hicimos varias versiones (con carritos antiguos, con lo que el comprador hace hoy, con su gusto histórico) y ninguna ganaba con todos los compradores.</p>
+        <div><span class="crit">Método</span><span class="crit">Aprender del stream</span><span class="src">filas 37, 40, 43 y 45</span></div>
+      </div></li>
+      <li><div class="dot">5</div><div class="step-body">
+        <h3>Torneos: cada petición, al modelo que mejor la resuelve</h3>
+        <p>Un torneo es servir varias versiones a la vez, repartidas por un hash de la petición, y compararlas en los mismos minutos. Durante la noche compitieron cuatro modelos con una cuarta parte de las peticiones cada uno.</p>
+        <div class="num"><strong>1,57 vs 1,24</strong><span>compras esperadas por cada 100 peticiones: la pareja frente al mejor modelo solo, en las mismas cinco horas</span></div>
+        <p class="why"><b>Por qué torneos.</b> La conversión cambia con la hora (la partida midió 0,40 a una hora y 0,79 a otra). Comparar un modelo de las 19:00 con otro de las 23:00 no dice nada.</p>
+        <p class="why"><b>Por qué una pareja.</b> Con compradores nuevos gana el modelo que lee lo que han hecho hoy (1,90 frente a 1,39). Con compradores conocidos gana, por poco, el que añade su gusto histórico (1,32 frente a 1,26). Servimos cada uno donde gana.</p>
+        <div><span class="crit">Aprender del stream</span><span class="crit">Método</span><span class="src">filas 37, 52, 60 y 61 · scripts/choose_final.py choose, dom 08:58</span></div>
+      </div></li>
+    </ol>
+  </section>
+
+  <section>
+    <span class="eyebrow">La evidencia de la elección</span>
+    <h2>Los cuatro modelos de la noche, por tipo de petición</h2>
+    <p>Compras esperadas por cada 100 peticiones según el simulador. Barras a la misma escala (0 a 2).</p>
+    <div class="chart">
+      <div class="grp">
+        <h3 class="tag-cold">Peticiones cold (~5.900 por modelo)</h3>
+        <div class="bar-row win"><span>Omni plain</span><div class="track"><div class="bar cold" style="width:95%"></div></div><span class="val">1,90</span></div>
+        <div class="bar-row"><span>Titan+ ALS</span><div class="track"><div class="bar cold dim" style="width:77.5%"></div></div><span class="val">1,55</span></div>
+        <div class="bar-row"><span>Titan+</span><div class="track"><div class="bar cold dim" style="width:69.5%"></div></div><span class="val">1,39</span></div>
+        <div class="bar-row"><span>Omni</span><div class="track"><div class="bar cold dim" style="width:62.5%"></div></div><span class="val">1,25</span></div>
+      </div>
+      <div class="grp">
+        <h3 class="tag-warm">El resto (~8.200 por modelo)</h3>
+        <div class="bar-row win"><span>Titan+ ALS</span><div class="track"><div class="bar warm" style="width:66%"></div></div><span class="val">1,32</span></div>
+        <div class="bar-row"><span>Omni plain</span><div class="track"><div class="bar warm dim" style="width:63%"></div></div><span class="val">1,26</span></div>
+        <div class="bar-row"><span>Omni</span><div class="track"><div class="bar warm dim" style="width:61%"></div></div><span class="val">1,22</span></div>
+        <div class="bar-row"><span>Titan+</span><div class="track"><div class="bar warm dim" style="width:56.5%"></div></div><span class="val">1,13</span></div>
+      </div>
+      <span class="src">scripts/choose_final.py choose · ejecutado dom 08:58 CET · ventana 01:45–07:00 CET</span>
+    </div>
+    <p>La ventaja en cold es grande (1,90 frente a 1,39). La de Titan+ ALS en el resto es pequeña (1,32 frente a 1,26): ahí decimos "no pierde", no "gana claro".</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Para no perderse</span>
+    <h2>Los nombres, en cristiano</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Nombre</th><th>Qué es</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr><td><b>Tati</b> (Destroyer, Terminator, Apocalypse…)</td><td>Reglas escritas a mano: más vendidos de la categoría vista, perfil del comprador, carrito.</td><td>Sirvieron el sábado. Hoy no.</td></tr>
+        <tr><td><b>Lauri</b></td><td>La familia de rankers aprendidos de nuestro feedback.</td><td>Toda la versión final es Lauri.</td></tr>
+        <tr><td>Titan → <b>Titan+</b></td><td>Primer Lauri; el "+" añade los carritos antiguos como candidatos.</td><td>Campeón hasta esta mañana.</td></tr>
+        <tr><td><b>Titan+ ALS</b></td><td>Titan+ más el gusto de cada comprador (factorización de su historial).</td><td class="tag-warm"><b>Final: el resto</b></td></tr>
+        <tr><td><b>Omni plain</b></td><td>Lauri que además lee "el día" del comprador: qué ha visto y metido en el carrito hoy.</td><td class="tag-cold"><b>Final: cold</b></td></tr>
+        <tr><td>Omni</td><td>Omni plain con tres capas extra (regla cold, subcategoría de moda, más candidatos).</td><td>Último en cold: las capas restan.</td></tr>
+        <tr><td><span class="mono">pair:A+B</span></td><td>Cold va al modelo A, el resto al B.</td><td>Así se sirve la final.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Lo que no ganó</span>
+    <h2>Cinco ideas de la noche que fallaron su propia regla</h2>
+    <p>Cada una tenía el listón escrito antes de ejecutarse. Ninguna entró en vivo. Contarlo suma en "Método".</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Idea</th><th>Resultado</th><th>Fila</th></tr></thead>
+      <tbody>
+        <tr><td>Candidatos por "quien vio esto vio aquello"</td><td>No pasa el listón</td><td class="n">62</td></tr>
+        <tr><td>Otro orden para compradores nuevos</td><td>Ninguno mejora las ventas del historial</td><td class="n">63</td></tr>
+        <tr><td>Entrenar con las 160.000 compras orgánicas de la tienda</td><td>Ordena peor que el modelo actual: lo comprado queda más abajo en la lista (MRR −0,019)</td><td class="n">64</td></tr>
+        <tr><td>Meter productos nuevos en los huecos 9 y 10</td><td>Acierta menos: gana cuando lo comprado es nuevo, pierde más en el resto (−0,0038, intervalo −0,0044 a −0,0031)</td><td class="n">65</td></tr>
+        <tr><td>Tres familias de señales más (marca, subcategoría, calidad)</td><td>Entre 0,92 y 1,03 veces lo actual; pedíamos 1,2 veces</td><td class="n">67</td></tr>
+      </tbody>
+    </table></div>
+    <span class="src">La fila 67 está en el PR #88, pendiente de entrar en main.</span>
+  </section>
+
+  <section>
+    <span class="eyebrow">Lo que no está demostrado</span>
+    <h2>Dos cosas que hay que decir nosotros antes de que las pregunten</h2>
+    <p class="note"><b>La confirmación no se hizo.</b> El plan escrito era elegir a las 07:00 y comprobar la elección dos horas más contra Titan+. Nos quedamos sin tiempo: con 50 minutos no se distingue una mejora de 0,10. Elegimos con 5 horas de datos y unas 14.000 peticiones por modelo, y dejamos la vuelta atrás preparada.</p>
+    <p class="note"><b>Los compradores nuevos de la final llegan sin "día".</b> Omni plain gana en cold porque lee lo que el comprador ha hecho hoy, y de noche todos tenían algo. Simulando un día recién empezado, la ventaja desaparece: en orden empata con Titan+ (de +0,088 a +0,007, IC −0,037 a +0,051) y en calibración y top 3 queda algo peor (top 3: 0,63 frente a 0,71). Es el riesgo real de la elección: a las 10:00 puede no haber ventaja en cold, y debería aparecer según los compradores actúan.</p>
+    <span class="src">filas 61, 66 y 67 · 78 compras apartadas: la dirección está clara, el tamaño no</span>
+  </section>
+
+  <section>
+    <span class="eyebrow">Si preguntan</span>
+    <h2>Preguntas probables del jurado</h2>
+    <details><summary>¿Por qué dos modelos y no uno?</summary><p>Porque ninguno gana en todo. Con comprador nuevo solo sirve lo que hace hoy; con historial, su gusto pasado pesa más. La pareja da 1,57 frente a 1,24 del mejor modelo solo.</p></details>
+    <details><summary>¿Por qué una regresión logística y no algo más potente?</summary><p>Porque con los datos que teníamos lo más potente no ganaba. Con 534 compras, los árboles potenciados empataron con ella en datos apartados. Entre dos modelos que predicen igual elegimos el que tiene 13 pesos que podemos leer y explicar, y que puntúa todos los candidatos en menos de un milisegundo.</p></details>
+    <details><summary>¿Cómo validasteis antes de salir a vivo?</summary><p>Offline con el registro antiguo de carruseles (IPS, con intervalo por bootstrap sobre compradores), y para Lauri con datos apartados de nuestro propio feedback. La regla de aprobado se escribe antes de ejecutar. Después, torneo en vivo en la misma ventana.</p></details>
+    <details><summary>¿Qué aprende el sistema del stream?</summary><p>Tres cosas. Los pesos de Lauri salen de nuestro feedback y se reentrenan. Las ventas en vivo y "el día" del comprador se actualizan mientras sirve. Y los torneos reparten tráfico para decidir con datos qué versión sigue.</p></details>
+    <details><summary>¿Y los productos nuevos?</summary><p>Son el 5,3 % de las compras orgánicas. Probamos forzar su entrada en la lista y perdía: acierta el 10 % de las veces cuando lo comprado es nuevo, pero estropea el resto. Lo dejamos fuera y lo decimos.</p></details>
+    <details><summary>¿Cómo usáis RawTree?</summary><p>Todo se lee y se escribe ahí: peticiones, respuestas y feedback. Las señales (ventas, perfiles, carritos) se calculan en SQL. Los pesos del modelo se guardan en nuestra base y la conversión por versión sale de la API del leaderboard.</p></details>
+    <details><summary>¿Por qué os saltasteis la confirmación?</summary><p>Por tiempo, no por decisión de método. Lo que quedaba no permitía medir nada. Preferimos 70 minutos de la pareja en vivo y revisada antes de las 10:00. Está escrito así en el repositorio.</p></details>
+    <details><summary>¿Por qué seguís lejos del líder?</summary><p>Nuestros modelos eligen entre candidatos de listas por categoría, y ahí solo cabe el 29 % de lo que la gente compra. Ordenar mejor ya da poco; lo siguiente sería ampliar de dónde salen los candidatos.</p></details>
+  </section>
+
+  <section>
+    <span class="eyebrow">La presentación</span>
+    <h2>Cuatro minutos: cuatro diapositivas y la demo de Miles en medio</h2>
+    <p>Las diapositivas cuentan por qué; el dashboard enseña que es verdad y que está vivo. La demo va después de la tercera diapositiva, cuando el jurado ya sabe qué versión sirve.</p>
+    <dl class="clock">
+      <dt>0:00</dt><dd><b>Diapositiva 1. El problema y el resultado.</b> 3 segundos para elegir 10 productos; de 0,7 a 1,57.</dd>
+      <dt>0:35</dt><dd><b>Diapositiva 2. El camino en cinco pasos.</b> Una frase y un número por paso; no se leen nombres de versiones.</dd>
+      <dt>1:35</dt><dd><b>Diapositiva 3. La pareja final.</b> El gráfico de barras y las dos cosas no demostradas.</dd>
+      <dt>2:15</dt><dd><b>Demo (Miles), dashboard, vista Jury, ronda Final.</b> Dos cosas, no más: las compras registradas con nuestra versión durante la final, y dónde sube la demanda por subcategoría, que sale de SQL sobre RawTree. Si el dashboard falla, la pestaña de Practice o el vídeo de respaldo.</dd>
+      <dt>3:30</dt><dd><b>Diapositiva 4. Qué aprende del stream y qué descartamos.</b> Las cinco ideas que no pasaron su listón, y qué haríamos después.</dd>
+      <dt>4:00</dt><dd>Preguntas.</dd>
+    </dl>
+    <p class="note"><b>Por decidir con Miles.</b> Su guion (PR #47) está escrito sobre las reglas del sábado, Destroyer y Terminator. Para la demo basta la parte de "compras en la final" y "dónde sube la demanda"; la comparación Destroyer frente a los más vendidos ya la cuenta la diapositiva 2. Falta comprobar con qué nombre aparece la pareja en el selector de versión del dashboard.</p>
+  </section>
+</div>
+</body>
+</html>
