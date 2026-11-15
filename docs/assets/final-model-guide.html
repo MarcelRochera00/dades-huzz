@@ -225,7 +225,7 @@ details p { margin-top: 8px; color: var(--muted); }
       <tbody>
         <tr><td><b>1. Más candidatos, y reentrenar con ellos</b></td><td>Nuestros modelos eligen entre unos 140 productos por petición, y ahí solo está el 29 % de lo que la gente compra. Llegando más hondo en cada categoría se alcanza el 49 %. Lo probamos sin reentrenar y el paquete que lo incluía no ganó en vivo: el modelo había aprendido solo con los 30 primeros de cada categoría. Lo siguiente es ampliar y volver a entrenar con esos productos.</td><td class="n">54, 60</td></tr>
         <tr><td><b>2. Enseñar productos nuevos</b></td><td>Son el 5,3 % de las compras de la tienda y casi no aparecen en nuestras listas. Forzarlos en los huecos 9 y 10 perdía; haría falta que el modelo los puntúe con señales propias (categoría, precio, primeras ventas).</td><td class="n">65</td></tr>
-        <tr><td><b>3. Reentrenar solo, cada hora</b></td><td>Hoy los pesos se recalculan a mano con un comando. El modelo mejoró cada vez que lo reentrenamos con más feedback, así que lo natural es que lo haga solo y que un torneo decida si el nuevo entra.</td><td class="n">45, 59</td></tr>
+        <tr><td><b>3. Reentrenar solo, cada hora</b></td><td>Hoy los pesos se recalculan a mano con un comando. El primer modelo aprendió de 534 compras y el último de 1.100: el feedback crece cada hora. Lo natural es que se reentrene solo y que un torneo decida si el nuevo entra.</td><td class="n">40, 59</td></tr>
       </tbody>
     </table></div>
     <p class="note"><b>Y antes que nada,</b> las dos horas de confirmación de la pareja que no pudimos hacer.</p>
