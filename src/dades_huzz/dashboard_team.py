@@ -1,8 +1,12 @@
 """Prepare comparison windows and measurements for the Team dashboard."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from math import ceil
 
+from dades_huzz.dashboard_jury import JURY_BUCKET_MS, JuryBucket
+from dades_huzz.dashboard_leaderboard import PracticePoint
 from dades_huzz.dashboard_splits import COLD_FLAGS, SplitPeriod
 from dades_huzz.data import RawTree, Record
 from dades_huzz.features import CATALOG_CATEGORY
@@ -74,6 +78,53 @@ def comparison_periods(periods: list[SplitPeriod]) -> list[SplitPeriod]:
         else:
             tests.append(period)
     return tests
+
+
+def confirmed_practice_series(
+    rows: Iterable[JuryBucket],
+    start: datetime,
+    end: datetime,
+    periods: list[SplitPeriod],
+) -> list[PracticePoint]:
+    """Group confirmed displays into at most 12 windows aligned to the ten-minute feedback buckets."""
+    if start >= end:
+        return []
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    step_ms = ceil((end_ms - start_ms) / (12 * JURY_BUCKET_MS)) * JURY_BUCKET_MS
+    totals: dict[tuple[int, str], tuple[int, int]] = {}
+    for row in rows:
+        if not start_ms <= row.start_ms < end_ms or not row.shown:
+            continue
+        bucket = (row.start_ms - start_ms) // step_ms
+        key = (bucket, row.version)
+        shown, purchases = totals.get(key, (0, 0))
+        totals[key] = (shown + row.shown, purchases + row.purchases)
+
+    versions = sorted({version for _, version in totals})
+    side_by_side = [
+        (period.start, period.end)
+        for period in periods
+        if len(period.shares.keys() - set(period.out)) > 1
+    ]
+    points: list[PracticePoint] = []
+    for bucket, first_ms in enumerate(range(start_ms, end_ms, step_ms)):
+        first = datetime.fromtimestamp(first_ms / 1000, UTC)
+        last = min(first + timedelta(milliseconds=step_ms), end)
+        overlap = any(left < last and right > first for left, right in side_by_side)
+        for version in versions:
+            shown, purchases = totals.get((bucket, version), (0, 0))
+            points.append(
+                {
+                    "bucket_start": first,
+                    "bucket_end": last,
+                    "model_version": version,
+                    "purchases_per_100": 100 * purchases / shown if shown else None,
+                    "requests": shown or None,
+                    "overlap": overlap,
+                }
+            )
+    return points
 
 
 # Keep the newest feedback if a request has more than one feedback row.

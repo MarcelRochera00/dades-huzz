@@ -1,6 +1,48 @@
 from datetime import UTC, datetime, timedelta
 
-from dades_huzz.dashboard_team import read_active_split
+from dades_huzz.dashboard_jury import JuryBucket
+from dades_huzz.dashboard_splits import SplitPeriod
+from dades_huzz.dashboard_team import confirmed_practice_series, read_active_split
+
+
+def test_practice_history_uses_confirmed_displays_and_preserves_traffic_gaps():
+    end = datetime(2026, 11, 15, 9, tzinfo=UTC)
+    start = end - timedelta(hours=6)
+    start_ms = int(start.timestamp() * 1000)
+    rows = [
+        JuryBucket("a", start_ms, 100, 1, 0),
+        JuryBucket("a", start_ms + 600_000, 300, 9, 0),
+        JuryBucket("b", start_ms + 1_200_000, 40, 0, 0),
+        JuryBucket("b", start_ms + 1_800_000, 20, 1, 0),
+        JuryBucket("final-only", int(end.timestamp() * 1000), 100, 20, 0),
+    ]
+    splits = [
+        SplitPeriod(start, start + timedelta(minutes=20), "a=50,b=50", (), "heartbeat"),
+        SplitPeriod(
+            start + timedelta(minutes=30),
+            start + timedelta(minutes=40),
+            "a=50,b=50",
+            ("a",),
+            "heartbeat",
+        ),
+    ]
+    points = confirmed_practice_series(rows, start, end, splits)
+    assert len(points) == 24
+    assert {point["model_version"] for point in points} == {"a", "b"}
+    assert points[0] == {
+        "bucket_start": start,
+        "bucket_end": start + timedelta(minutes=30),
+        "model_version": "a",
+        "purchases_per_100": 2.5,
+        "requests": 400,
+        "overlap": True,
+    }
+    assert points[1]["purchases_per_100"] == 0
+    assert points[2]["purchases_per_100"] is None
+    assert points[2]["requests"] is None
+    assert not points[2]["overlap"]
+    assert points[3]["purchases_per_100"] == 5.0
+    assert points[-1]["bucket_end"] == end
 
 
 class ServingRecords:
