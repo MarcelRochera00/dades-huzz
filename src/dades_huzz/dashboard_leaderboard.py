@@ -15,7 +15,7 @@ class PracticePoint(TypedDict):
     bucket_start: datetime
     bucket_end: datetime
     model_version: str
-    expected_purchases_per_100: float | None
+    purchases_per_100: float | None
     requests: int | None
     overlap: bool
 
@@ -131,7 +131,7 @@ def practice_series(
                     "bucket_start": datetime.fromtimestamp(first, UTC),
                     "bucket_end": datetime.fromtimestamp(last, UTC),
                     "model_version": version,
-                    "expected_purchases_per_100": row.get("conversion"),
+                    "purchases_per_100": row.get("conversion"),
                     "requests": row.get("requests"),
                     "overlap": overlap,
                 }
