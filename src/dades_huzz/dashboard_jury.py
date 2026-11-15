@@ -20,7 +20,7 @@ WITH request_times AS (
            min(toUnixTimestamp64Milli(ts::DateTime64(3))) AS request_ms
     FROM shop.requests
     WHERE toUnixTimestamp64Milli(ts::DateTime64(3)) >= {practice_start_ms}
-      AND toUnixTimestamp64Milli(ts::DateTime64(3)) < {final_end_ms}
+      AND toUnixTimestamp64Milli(ts::DateTime64(3)) < {until_ms}
     GROUP BY id
 ), latest_feedback AS (
     SELECT request_id::String AS id,
@@ -84,14 +84,14 @@ def default_jury_version(
     )
 
 
-def load_jury_data(rawtree: RawTree) -> JuryData:
+def load_jury_data(rawtree: RawTree, *, until_ms: int = FINAL_END_MS) -> JuryData:
     """Credit completed feedback only when its shown list matches one submitted version."""
     rows = rawtree.query(
         JURY_RESULTS.format(
             team=rawtree.team,
             practice_start_ms=PRACTICE_START_MS,
             final_start_ms=FINAL_START_MS,
-            final_end_ms=FINAL_END_MS,
+            until_ms=min(until_ms, FINAL_END_MS),
             bucket_ms=JURY_BUCKET_MS,
         )
     )

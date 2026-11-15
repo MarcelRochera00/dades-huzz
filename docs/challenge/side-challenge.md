@@ -36,7 +36,7 @@ Each chart will state the decision it supports.
 | --- | --- |
 | What is serving now? | Show the planned version shares from a recent active serving heartbeat and flag any paused version. |
 | Which version should we run? | Compare purchases per 100 assigned requests, euros per assigned request, request counts, and a confidence interval for the difference. Default to the full current A/B test. Start a new comparison period when the versions or their shares change. |
-| How has each version performed over time? | Plot expected purchases per 100 requests from the organizers' public practice leaderboard by version. Mark split changes and highlight periods when versions ran side by side. Show the request count behind each point and leave gaps when a version has no reported traffic. |
+| How has each version performed over time? | Plot the organizers' expected purchases per 100 requests during Practice. From the start of Final, plot recorded purchases per 100 confirmed Practice displays. Mark split changes and highlight side-by-side tests. Show the count behind each point and leave gaps without traffic. |
 | Does the recommender need attention? | Over the last 30 minutes, show the share of valid answers within three seconds, typical and slower response times, the organizer fallback rate, and counts of missing, late, and invalid answers. For a recorded side-by-side test, show how many of each version's assigned requests used the team's backup version or the organizers' fallback, with a separate rate for each. |
 | Which cold requests need better recommendations? | Show request counts and purchase rates for new shoppers only, shoppers who recently viewed a newly added product only, and requests that meet both conditions. |
 | What is changing in the store? | Compare recent product or category views, add-to-carts, and purchases with an earlier period of the same length. |
@@ -49,7 +49,10 @@ Newcombe's method for two independent proportions. A range that includes zero le
 lead uncertain. Treat live snapshots as provisional and assess the difference at the end of the test.
 A challenger pause or resume keeps the same comparison while the planned split and serving records
 are continuous. The backup table counts confirmed takeovers across the whole comparison.
-The practice leaderboard chart uses the organizers' expected purchase rates and labels them as such.
+The chart labels its source and denominator. During Final, the organizers' API stops returning
+Practice version windows. The chart then uses the simulator's recorded purchases for displays
+matched to a submitted version by request ID and exact shown list, with all ranges ending at
+the start of Final.
 
 ### Jury view
 

@@ -39,6 +39,7 @@ from dades_huzz.dashboard_splits import (
 from dades_huzz.dashboard_team import (
     ActiveSplit,
     comparison_periods,
+    confirmed_practice_series,
     read_active_split,
     read_cold_groups,
     read_health,
@@ -160,6 +161,11 @@ def jury_data() -> JuryData:
     return load_jury_data(RawTree.from_env())
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def practice_feedback() -> JuryPeriod:
+    return load_jury_data(RawTree.from_env(), until_ms=FINAL_START_MS).periods[0]
+
+
 @st.cache_data(ttl=55, show_spinner=False)
 def demand_data(end: datetime) -> list[tuple[str, float]]:
     return read_demand_trends(RawTree.from_env(), end)
@@ -259,13 +265,11 @@ def serving_health(end: datetime) -> None:
     )
 
 
-def expected_performance(periods: list[SplitPeriod]) -> None:
+def practice_performance(periods: list[SplitPeriod]) -> None:
     st.subheader("Which versions sold more in practice?")
     st.caption(
-        "Use periods with side-by-side traffic to compare versions under similar conditions. "
-        "These figures are the organizers’ expected purchases, based on the simulator’s probabilities."
+        "Use periods with side-by-side traffic to compare versions under similar conditions."
     )
-    team = RawTree.from_env().team
     hours = st.selectbox(
         "Practice history",
         [2, 6, 12, 24],
@@ -278,12 +282,32 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
         st.info("Practice has yet to produce a complete time window.")
         return
     key = f"practice:{hours}"
+    using_feedback = False
     if datetime.now(UTC) >= PRACTICE_END:
-        previous = st.session_state.get(key)
-        st.caption("Practice history stops updating when the final round starts.")
-        rows = previous[0] if previous else None
+        data = fetch_latest("practice_feedback", practice_feedback)
+        rows = confirmed_practice_series(data.rows, start, end, periods) if data else []
+        using_feedback = bool(rows)
+        if not rows and (previous := st.session_state.get(key)):
+            rows, saved_at = previous
+            st.caption(
+                f"Showing the Practice leaderboard snapshot from {local_time(saved_at)}."
+            )
     else:
+        team = RawTree.from_env().team
         rows = fetch_latest(key, lambda: leaderboard_history(team, start, end))
+    if using_feedback:
+        st.caption(
+            "Source: confirmed Practice displays and simulated purchases recorded in RawTree. "
+            "The selected range ends when the Final began."
+        )
+        rate_label = "Recorded purchases per 100 confirmed displays"
+        count_label = "Confirmed displays in window"
+    else:
+        st.caption(
+            "Source: the organizers’ Practice leaderboard estimates, based on the simulator’s purchase probabilities."
+        )
+        rate_label = "Expected purchases per 100 requests"
+        count_label = "Requests in window"
     if not rows:
         st.info("No per-version results are available for this practice window.")
         return
@@ -294,7 +318,9 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
     frame["Window end (Barcelona)"] = frame["bucket_end"].map(chart_time)
     axis = alt.X(
         "Start:T",
-        scale=alt.Scale(type="utc", nice=False),
+        scale=alt.Scale(
+            type="utc", nice=False, domain=[frame["Start"].min(), frame["End"].max()]
+        ),
         title="Barcelona time",
         axis=alt.Axis(format="%H:%M"),
     )
@@ -308,10 +334,7 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
         .mark_line(point=True, invalid="break-paths-filter-domains")
         .encode(
             x=axis,
-            y=alt.Y(
-                "expected_purchases_per_100:Q",
-                title="Expected purchases per 100 requests",
-            ),
+            y=alt.Y("purchases_per_100:Q", title=rate_label),
             color=alt.Color(
                 "model_version:N",
                 title="Model version",
@@ -323,11 +346,11 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
                 alt.Tooltip("Window end (Barcelona):O", title="To"),
                 alt.Tooltip("model_version:N", title="Version"),
                 alt.Tooltip(
-                    "expected_purchases_per_100:Q",
-                    title="Expected purchases / 100",
+                    "purchases_per_100:Q",
+                    title=rate_label,
                     format=".3f",
                 ),
-                alt.Tooltip("requests:Q", title="Requests in window"),
+                alt.Tooltip("requests:Q", title=count_label),
             ],
         )
     )
@@ -360,11 +383,14 @@ def expected_performance(periods: list[SplitPeriod]) -> None:
         chart_style(chart.properties(height=330)), theme=None, width="stretch"
     )
     version_legend(sorted(frame["model_version"].unique()))
-    st.caption(
-        "Shaded windows show overlapping traffic. Dashed lines mark recorded split changes."
-        if changes
-        else "Shaded windows show overlapping traffic. No split changes are recorded in this range."
+    shading_note = (
+        "Shaded windows include recorded side-by-side tests."
+        if using_feedback
+        else "Shaded windows show overlapping traffic."
     )
+    if changes:
+        shading_note += " Dashed lines mark recorded split changes."
+    st.caption(shading_note)
 
 
 def split_reliability(periods: list[SplitPeriod], end: datetime) -> None:
@@ -853,7 +879,7 @@ def show_view() -> None:
     with st.container(key="dashboard-panel-splits", border=True):
         split_reliability(periods, end)
     with st.container(key="dashboard-panel-performance", border=True):
-        expected_performance(periods)
+        practice_performance(periods)
     with st.container(key="dashboard-panel-cold", border=True):
         shopper_groups(end)
     with st.container(key="dashboard-panel-trends", border=True):
