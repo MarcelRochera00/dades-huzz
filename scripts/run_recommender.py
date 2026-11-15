@@ -17,7 +17,7 @@ from pathlib import Path
 from dades_huzz.data import RawTree
 from dades_huzz.serving import serve
 from dades_huzz.serving.split import parse_split
-from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, load_split
+from dades_huzz.serving.versions import DEFAULT_SPLIT, VERSIONS, is_known, load_split
 from dades_huzz.serving.watchdog import exit_when_watchdog_dies, run_supervised
 
 WATCHDOG_LOG = Path("outputs/watchdog.log")
@@ -44,7 +44,8 @@ def main() -> None:
     parser.add_argument(
         "--versions",
         default=DEFAULT_SPLIT,
-        help=f"which versions answer and their shares, the champion first (known: {', '.join(VERSIONS)})",
+        help=f"which versions answer and their shares, the champion first (known: {', '.join(VERSIONS)};"
+        " or pair:<cold>+<warm>, two of them as one: the first answers cold requests, the second the rest)",
     )
     # set by the watchdog for its child
     parser.add_argument("--alive-file", type=Path, help=argparse.SUPPRESS)
@@ -54,10 +55,8 @@ def main() -> None:
         shares = parse_split(args.versions)
     except ValueError as e:
         parser.error(str(e))
-    if unknown := set(shares) - set(VERSIONS):
-        parser.error(
-            f"unknown versions {sorted(unknown)}; known: {', '.join(VERSIONS)}"
-        )
+    if unknown := sorted(name for name in shares if not is_known(name)):
+        parser.error(f"unknown versions {unknown}; known: {', '.join(VERSIONS)}")
     if args.no_watchdog:
         if args.alive_file:  # started by the watchdog: stop if it dies
             exit_when_watchdog_dies()

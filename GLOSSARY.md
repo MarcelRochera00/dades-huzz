@@ -125,6 +125,10 @@ Unlike the day's cart, it comes from before the live stream. _Avoid_: abandoned 
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.
 
+**Pair**: two model versions serving as one: the first answers cold requests and the second every other
+request. It carries one version name, `pair:<cold>+<warm>`, so it is compared live like any single
+version. _Avoid_: ensemble, blend (a pair never mixes two answers).
+
 ## Offline evaluation
 
 **Cut**: the instant that splits the history: signals use only what happened before it, and evaluation

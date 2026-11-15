@@ -33,3 +33,14 @@ def test_an_undescribed_version_keeps_the_same_spare_colour_and_is_not_grey():
 def test_spare_colours_are_never_a_described_version_colour():
     described = {style.colour for style in VERSION_STYLES.values()}
     assert set(SPARE_COLOURS).isdisjoint(described)
+
+
+def test_a_pair_is_described_by_its_two_arms():
+    style = version_style("pair:lauri-omni-plain+lauri-titan-plus")
+    assert style.description != UNDESCRIBED
+    assert "lauri-omni-plain" in style.description
+    assert "lauri-titan-plus" in style.description
+    assert style.description.index("lauri-omni-plain") < style.description.index(
+        "lauri-titan-plus"
+    )
+    assert style.colour not in {s.colour for s in VERSION_STYLES.values()}

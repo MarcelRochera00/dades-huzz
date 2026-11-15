@@ -2,9 +2,11 @@ import pytest
 
 from dades_huzz.evaluation.selection import (
     ArmResult,
+    Choice,
     arm_results,
     choose,
     confirm,
+    confirmation_split,
     live_arms,
     paired_windows,
 )
@@ -145,3 +147,37 @@ def test_paired_windows_keep_each_window_with_its_own_numbers_and_miss_none():
 def test_confirm_refuses_fewer_than_four_windows():
     with pytest.raises(ValueError):
         confirm(choice=2.5, titan_plus=2.0, windows=[(2.5, 2.0)] * 3)
+
+
+def test_a_chosen_pair_serves_at_half_against_titan_plus_which_stays_champion():
+    choice = Choice("lauri-omni-plain", "lauri-titan-plus", 1.65)
+    assert (
+        confirmation_split(choice, "lauri-titan-plus")
+        == "lauri-titan-plus=50,pair:lauri-omni-plain+lauri-titan-plus=50"
+    )
+
+
+def test_a_chosen_single_arm_serves_under_its_own_name():
+    choice = Choice("lauri-omni", "lauri-omni", 1.70)
+    assert (
+        confirmation_split(choice, "lauri-titan-plus")
+        == "lauri-titan-plus=50,lauri-omni=50"
+    )
+
+
+def test_choosing_titan_plus_needs_no_confirmation_split():
+    choice = Choice("lauri-titan-plus", "lauri-titan-plus", 1.60)
+    assert confirmation_split(choice, "lauri-titan-plus") is None
+
+
+def test_a_night_candidate_joins_the_confirmation_as_a_third_arm():
+    pair = Choice("lauri-omni-plain", "lauri-titan-plus", 1.65)
+    assert (
+        confirmation_split(pair, "lauri-titan-plus", candidate="lauri-new")
+        == "lauri-titan-plus=34,pair:lauri-omni-plain+lauri-titan-plus=33,lauri-new=33"
+    )
+    titan = Choice("lauri-titan-plus", "lauri-titan-plus", 1.60)
+    assert (
+        confirmation_split(titan, "lauri-titan-plus", candidate="lauri-new")
+        == "lauri-titan-plus=50,lauri-new=50"
+    )
