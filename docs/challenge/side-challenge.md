@@ -56,19 +56,18 @@ the start of Final.
 
 ### Jury view
 
-Lead with the model version and its confirmed simulated sales, purchases, and purchases per 100
-displays. Default to the Sunday final, 10:00–12:00 Barcelona time, once final-round feedback is
-available. During the final, use the active serving split to choose the version automatically.
+Briefly explain how Lauri selects recommendations, then show the model version and its confirmed
+simulated sales, purchases, and purchases per 100 displays. Default to the Sunday final,
+10:00–12:00 Barcelona time, once final-round feedback is available. During the final, use the
+active serving split to choose the version automatically.
 With no recent heartbeat, use the version with the most confirmed displays in that round. The
 presenter can choose another version or open the results labeled **Practice**.
 
 The chart defaults to purchase rate over time and can show raw purchase counts. Each window
-shows its display count. Use the results and store demand to explain what a controlled store
-pilot should measure.
+shows its display count.
 
 Show which store subcategories are gaining purchase share using the serving detector’s
-15-minute multiplier. Label the store activity window and explain how it can inform stock checks
-and what to feature during a pilot.
+15-minute multiplier. Label the store activity window and explain how the multiplier is calculated.
 
 Keep the official team score available separately once the organizers publish it. It uses the
 simulator’s purchase probabilities and other scoring components.

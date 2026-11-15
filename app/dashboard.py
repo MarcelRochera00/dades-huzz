@@ -686,9 +686,7 @@ def jury_trend(rows: list[JuryBucket]) -> None:
         width="stretch",
     )
     st.caption(
-        "Results are grouped into 10-minute windows. The latest window may still be filling. "
-        "If conversion falls across several windows with comparable traffic, check stock "
-        "availability and the mix of shoppers before expanding a pilot."
+        "Results are grouped into 10-minute windows. The latest window may still be filling."
     )
 
 
@@ -738,10 +736,6 @@ def jury_demand() -> None:
             theme=None,
             width="stretch",
         )
-    st.caption(
-        "Use this storewide signal to check stock and test featuring relevant products "
-        "while demand is high."
-    )
 
 
 def jury_score() -> None:
@@ -757,10 +751,10 @@ def jury_score() -> None:
 
 
 def jury_view() -> None:
-    st.title("More relevant product recommendations")
+    st.title("Lauri recommendations")
     st.markdown(
-        "Tati picks ten in-stock products for a store’s recommendation carousel, "
-        "using what the shopper has browsed to make the list more relevant."
+        "Trained on past carousel results, Lauri uses browsing and cart activity "
+        "to rank in-stock products and recommend the top ten."
     )
     data = fetch_latest("jury", jury_data)
     periods = {period.name: period for period in data.periods} if data else {}
@@ -862,11 +856,6 @@ def show_view() -> None:
         with st.container(key="dashboard-panel-jury", border=True):
             jury_view()
             jury_demand()
-            st.info(
-                "**Next step: run a controlled store pilot.** Split traffic between Tati and your "
-                "current best-seller list. Track purchases and sales per 100 eligible visits, "
-                "and check that recommendations still arrive on time before expanding the rollout."
-            )
             jury_score()
         return
     st.title("Recommendation monitor")
