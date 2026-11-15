@@ -2,6 +2,10 @@
 cost of their background work to the answering loop. Reads TEAM_ID and RAWTREE_API_KEY from .env.
 
     uv run python scripts/check_versions.py tati-ultimatum-viewed-first tati-apocalypse-profile
+    uv run python scripts/check_versions.py lauri-titan-plus pair:lauri-omni-plain+lauri-titan-plus
+
+Versions load in the order given and each model loads once, as in a live split: a pair listed after one of
+its versions shows only what the other one adds.
 
 Paste the output into the PR that adds a version (AGENTS.md / issue #5: needed to skip lane A's box).
 """
@@ -13,14 +17,18 @@ import time
 from dades_huzz.data import REQUESTS_SINCE, RawTree, as_request
 from dades_huzz.serving.loop import LiveState
 from dades_huzz.serving.split import main_thread_wait_ms, measure_version
-from dades_huzz.serving.versions import VERSIONS
+from dades_huzz.serving.versions import VERSIONS, is_known, load_version
 
 REFERENCE = "tati-terminator-category-viewed"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("versions", nargs="+", help=f"known: {', '.join(VERSIONS)}")
+    parser.add_argument(
+        "versions",
+        nargs="+",
+        help=f"known: {', '.join(VERSIONS)}, or pair:<cold>+<warm> of two of them",
+    )
     parser.add_argument(
         "--minutes", type=float, default=2, help="real requests from the last N minutes"
     )
@@ -28,10 +36,8 @@ def main() -> None:
         "--watch", type=float, default=75, help="seconds to watch the background cost"
     )
     args = parser.parse_args()
-    if unknown := set(args.versions) - set(VERSIONS):
-        parser.error(
-            f"unknown versions {sorted(unknown)}; known: {', '.join(VERSIONS)}"
-        )
+    if unknown := sorted(name for name in args.versions if not is_known(name)):
+        parser.error(f"unknown versions {unknown}; known: {', '.join(VERSIONS)}")
     rawtree = RawTree.from_env()
     started = time.monotonic()
     live = LiveState(rawtree)
@@ -49,9 +55,13 @@ def main() -> None:
         for row in rawtree.query(REQUESTS_SINCE.format(since_ms=since_ms), timeout=10)
     ]
     reference = VERSIONS[REFERENCE](rawtree)
+    loaded: dict = {}
     for name in args.versions:
         m = measure_version(
-            lambda name=name: VERSIONS[name](rawtree), requests, live.state, reference
+            lambda name=name: load_version(rawtree, name, loaded),
+            requests,
+            live.state,
+            reference,
         )
         print(
             f"{name}: load {m['load_s']:.1f} s, +{m['load_mb']:.0f} MB; {m['requests']} requests, invalid {m['invalid']},"

@@ -57,6 +57,10 @@ the purchase. It bounds what a ranker can reach; it says nothing about the order
 **Co-view**: a signal linking products by what shoppers bought after viewing a product in the same
 session ("viewed X, then bought Y"). _Avoid_: similar products, related products.
 
+**Co-viewing**: a signal linking two products that the same shopper viewed on the same day, with no
+purchase needed. Measured in row 62 of `docs/experiments.md`; never served. _Avoid_: co-view, which
+needs a purchase.
+
 **Signal**: a precomputed or live input to ranking (co-views, trends, stock, price). _Avoid_: feature
 when it lives outside a trained model.
 
@@ -120,6 +124,10 @@ Unlike the day's cart, it comes from before the live stream. _Avoid_: abandoned 
 
 **Champion**: the model version the team currently serves as its best, the one a challenger must beat
 live to take the next rank. _Avoid_: production model.
+
+**Pair**: two model versions serving as one: the first answers cold requests and the second every other
+request. It carries one version name, `pair:<cold>+<warm>`, so it is compared live like any single
+version. _Avoid_: ensemble, blend (a pair never mixes two answers).
 
 ## Offline evaluation
 

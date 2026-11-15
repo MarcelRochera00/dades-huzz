@@ -16,13 +16,11 @@ from dades_huzz.dashboard_jury import (
     FINAL_END_MS,
     FINAL_START_MS,
     JURY_BUCKET_MS,
-    PRACTICE_BEST_SELLERS,
-    PRACTICE_DESTROYER,
-    PRACTICE_LIFT_PCT,
     PRACTICE_START_MS,
     JuryBucket,
     JuryData,
     JuryPeriod,
+    default_jury_version,
     load_jury_data,
     read_demand_trends,
 )
@@ -39,13 +37,16 @@ from dades_huzz.dashboard_splits import (
     read_split_stats,
 )
 from dades_huzz.dashboard_team import (
+    ActiveSplit,
     comparison_periods,
+    read_active_split,
     read_cold_groups,
     read_health,
     read_trends,
 )
 from dades_huzz.dashboard_versions import version_style
 from dades_huzz.data import RawTree
+from dades_huzz.serving.split import pair_arms
 
 BARCELONA = ZoneInfo("Europe/Madrid")
 PRACTICE_START = datetime.fromtimestamp(PRACTICE_START_MS / 1000, UTC)
@@ -55,6 +56,17 @@ st.set_page_config(page_title="Tati · Recommendation dashboard", layout="wide")
 st.html(Path(__file__).with_name("dashboard.css"))
 
 TEAL = "#126e65"
+MODEL_LABELS = {
+    "lauri-omni-plain": "Lauri Omni Plain",
+    "lauri-titan-plus": "Lauri Titan+",
+    "lauri-titan-plus-als": "Lauri Titan+ ALS",
+}
+
+
+def model_label(name: str) -> str:
+    if arms := pair_arms(name):
+        return " + ".join(MODEL_LABELS.get(arm, arm) for arm in arms)
+    return MODEL_LABELS.get(name, name)
 
 
 def version_scale(names) -> alt.Scale:
@@ -178,6 +190,29 @@ def clock_slot(minutes: int = 1) -> datetime:
     timestamp = int(now.timestamp())
     interval = 60 * minutes
     return datetime.fromtimestamp(timestamp - timestamp % interval, UTC)
+
+
+def current_split(now: datetime) -> ActiveSplit | None:
+    try:
+        return read_active_split(RawTree.from_env(), now)
+    except (RequestException, KeyError, TypeError, ValueError):
+        # Cached serving records would describe an earlier split.
+        return None
+
+
+def show_active_split(now: datetime) -> None:
+    st.subheader("Active serving split")
+    split = current_split(now)
+    if split is None:
+        st.caption("Current serving split unavailable.")
+        return
+    total = sum(split.shares.values())
+    for version, share in split.shares.items():
+        percentage = f"{100 * share / total:.1f}".removesuffix(".0")
+        paused = " · Paused" if version in split.paused else ""
+        st.markdown(f"**{percentage}%** · {model_label(version)}{paused}")
+    heartbeat = split.heartbeat_at.astimezone(BARCELONA).strftime("%H:%M:%S %Z")
+    st.caption(f"Planned traffic shares · Last active heartbeat {heartbeat}")
 
 
 def serving_health(end: datetime) -> None:
@@ -570,70 +605,6 @@ def store_trends(end: datetime) -> None:
     st.altair_chart(chart_style(comparison), theme=None, width="stretch")
 
 
-def jury_benchmark() -> None:
-    arms = (PRACTICE_DESTROYER, PRACTICE_BEST_SELLERS)
-    labels = [arm.label for arm in arms]
-    frame = pd.DataFrame(
-        {
-            "Recommendation": labels,
-            "Expected purchases per 100": [arm.expected_per_100 for arm in arms],
-            "Requests": [arm.requests for arm in arms],
-        }
-    )
-    with st.container(key="jury-benchmark", border=True):
-        st.subheader("Personalized recommendations vs. best sellers")
-        st.caption("Practice experiment · 14 Nov, 15:30–15:50 Barcelona time")
-        impact, comparison = st.columns([1, 2])
-        with impact:
-            st.metric("Higher expected purchase rate", f"+{PRACTICE_LIFT_PCT:.0f}%")
-        with comparison:
-            st.caption("Expected purchases per 100 requests")
-            bars = alt.Chart(frame).encode(
-                x=alt.X(
-                    "Expected purchases per 100:Q",
-                    axis=None,
-                    scale=alt.Scale(domain=[0, 1.25]),
-                ),
-                y=alt.Y(
-                    "Recommendation:N",
-                    sort=labels,
-                    title=None,
-                    axis=alt.Axis(ticks=False, labelFontSize=12),
-                    scale=alt.Scale(paddingInner=0.4),
-                ),
-            )
-            chart = bars.mark_bar(size=10, cornerRadiusEnd=5).encode(
-                color=alt.Color(
-                    "Recommendation:N",
-                    scale=alt.Scale(domain=labels, range=[TEAL, "#8296a4"]),
-                    legend=None,
-                ),
-                tooltip=[
-                    "Recommendation:N",
-                    alt.Tooltip("Expected purchases per 100:Q", format=".3f"),
-                    alt.Tooltip("Requests:Q", format=","),
-                ],
-            ) + bars.mark_text(
-                align="left", dx=8, color="#172735", fontSize=13, fontWeight=600
-            ).encode(text=alt.Text("Expected purchases per 100:Q", format=".3f"))
-            st.altair_chart(
-                chart_style(chart.properties(height=64)).configure(
-                    background="transparent"
-                ),
-                theme=None,
-                width="stretch",
-            )
-        st.markdown(
-            "Destroyer used in-stock best sellers from the category the shopper last browsed. "
-            "The comparison used the store’s overall in-stock best sellers."
-        )
-        st.caption(
-            "RawTree simulator estimates from a same-window split test "
-            f"({PRACTICE_DESTROYER.requests:,} Destroyer requests and "
-            f"{PRACTICE_BEST_SELLERS.requests:,} best-seller requests)."
-        )
-
-
 def jury_trend(rows: list[JuryBucket]) -> None:
     st.subheader("Sales activity over time")
     rate_label = "Purchases per 100 displays"
@@ -765,24 +736,19 @@ def jury_view() -> None:
         "Tati picks ten in-stock products for a store’s recommendation carousel, "
         "using what the shopper has browsed to make the list more relevant."
     )
-    jury_benchmark()
-    st.info(
-        "**Next step: run a controlled store pilot.** Split traffic between Tati and your "
-        "current best-seller list. Track purchases and sales per 100 eligible visits, "
-        "and check that recommendations still arrive on time before expanding the rollout."
-    )
-
-    st.subheader("What shoppers bought in the simulation")
     data = fetch_latest("jury", jury_data)
-    if not data:
-        return
-    periods = {period.name: period for period in data.periods}
+    periods = {period.name: period for period in data.periods} if data else {}
+    now = datetime.now(UTC)
+    now_ms = now.timestamp() * 1000
+    final_running = FINAL_START_MS <= now_ms < FINAL_END_MS
     available = [
         name
         for name, period in periods.items()
         if period.feedback_through_ms is not None
     ]
     if not available:
+        if final_running and (split := current_split(now)):
+            st.subheader(f"Final · {model_label(next(iter(split.shares)))}")
         st.info("No confirmed shopping results are available yet.")
         return
     # Follow the final automatically when it first has feedback, unless the presenter picked a period.
@@ -796,19 +762,38 @@ def jury_view() -> None:
     versions: Counter[str] = Counter()
     for row in period.rows:
         versions[row.version] += row.shown
-    if not versions:
+    preferred = None
+    if final_running and period.name == "Final" and (split := current_split(now)):
+        preferred = next(iter(split.shares))
+    default = default_jury_version(versions, preferred)
+    if default is None:
         st.info("No team recommendations have a confirmed display in this round yet.")
         return
-    version_names = sorted(versions)
-    default_version = min(version_names, key=lambda name: (-versions[name], name))
-    version = version_column.selectbox(
+    selected = version_column.selectbox(
         "Recommendation version",
-        version_names,
-        index=version_names.index(default_version),
+        [None, *sorted(versions)],
+        format_func=lambda name: model_label(name) if name else "Automatic",
         key=f"version:{period.name}",
     )
+    version = selected or default
+    if (
+        final_running
+        and "Final" not in available
+        and chosen_period == "Show latest round"
+    ):
+        st.caption("Final feedback is pending. Showing Practice results.")
+    st.subheader(f"{period.name} · {model_label(version)}")
+    if arms := pair_arms(version):
+        cold, warm = (model_label(arm) for arm in arms)
+        st.caption(
+            f"{cold} handles new shoppers and shoppers who viewed a newly added product. "
+            f"{warm} handles the rest."
+        )
     rows = [row for row in period.rows if row.version == version]
     displays = versions[version]
+    if not displays:
+        st.info("Waiting for confirmed displays for this version.")
+        return
     purchases = sum(row.purchases for row in rows)
     revenue = sum(row.revenue_eur for row in rows)
     columns = st.columns(3)
@@ -816,14 +801,10 @@ def jury_view() -> None:
     columns[1].metric("Simulated purchases", f"{purchases:,}", border=True)
     columns[2].metric(
         "Purchases per 100 displays",
-        f"{100 * purchases / displays:.2f}" if displays else "—",
+        f"{100 * purchases / displays:.2f}",
         border=True,
     )
-    status = (
-        "Results so far"
-        if datetime.now(UTC).timestamp() * 1000 < period.end_ms
-        else "Results"
-    )
+    status = "Results so far" if now_ms < period.end_ms else "Results"
     st.caption(
         f"{period.name} · {status} · {displays:,} confirmed displays · "
         f"Feedback through {local_time(period.feedback_through_ms / 1000)}"
@@ -833,10 +814,9 @@ def jury_view() -> None:
         f"{local_time(period.end_ms / 1000)}. Each display is one shown "
         "recommendation list. Sales and purchases come from those displays."
     )
-    if version in {"baseline", "best-sellers", PRACTICE_BEST_SELLERS.version}:
+    if version in {"baseline", "best-sellers", "tati-0-bestsellers"}:
         st.caption("Selected version uses the store’s overall in-stock best sellers.")
-    if displays:
-        jury_trend(rows)
+    jury_trend(rows)
 
 
 st.sidebar.title("Tati")
@@ -856,10 +836,17 @@ def show_view() -> None:
         with st.container(key="dashboard-panel-jury", border=True):
             jury_view()
             jury_demand()
+            st.info(
+                "**Next step: run a controlled store pilot.** Split traffic between Tati and your "
+                "current best-seller list. Track purchases and sales per 100 eligible visits, "
+                "and check that recommendations still arrive on time before expanding the rollout."
+            )
             jury_score()
         return
     st.title("Recommendation monitor")
     end = clock_slot()
+    with st.container(key="dashboard-panel-active-split", border=True):
+        show_active_split(datetime.now(UTC))
     with st.container(key="dashboard-panel-health", border=True):
         serving_health(end)
     periods = fetch_latest("split_history", lambda: split_history(end)) or []

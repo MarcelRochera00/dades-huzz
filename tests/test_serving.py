@@ -358,3 +358,20 @@ def test_lauri_omni_is_a_live_version():
     from dades_huzz.serving.versions import VERSIONS
 
     assert "lauri-omni" in VERSIONS
+    assert "lauri-omni-plain" in VERSIONS
+
+
+def test_lauri_titan_plus_als_is_titan_plus_with_taste_and_no_layers(monkeypatch):
+    """Titan+ ALS plain (docs/experiments.md row 61): the ALS weights with history carts and taste, 30 deep,
+    with none of tournament 4's losing layers (no pool 100, trending subcategory or cold rule)."""
+    from dades_huzz.serving import versions
+
+    calls = []
+    marker = object()
+    monkeypatch.setattr(
+        versions,
+        "_lauri",
+        lambda rawtree, name, **kw: calls.append((name, kw)) or marker,
+    )
+    assert versions.VERSIONS["lauri-titan-plus-als"](None) is marker
+    assert calls == [("lauri-titan-als", {"history_carts": True, "taste": True})]

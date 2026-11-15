@@ -4,6 +4,9 @@ To add a version, add one line to VERSIONS: a function that loads what the versi
 `recommend(request, state)`. A PR that adds one shows `scripts/check_versions.py` output for it (issue #5).
 Choose which versions run and their shares with `run_recommender.py --versions name=share,...`, champion
 first. How requests are shared and timed is in `split.py`.
+
+Any two versions also serve as a pair with no line added: `pair:<cold>+<warm>` answers cold requests with the
+first and every other request with the second (`load_version`).
 """
 
 import math
@@ -38,7 +41,7 @@ from dades_huzz.model import (
 )
 from dades_huzz.serving.handover import now_ms
 from dades_huzz.serving.loop import Recommend
-from dades_huzz.serving.split import Split
+from dades_huzz.serving.split import Split, pair_arms, pair_name
 
 
 def _apocalypse(rawtree: RawTree, viewed_first: int = 0) -> Recommend:
@@ -240,12 +243,47 @@ VERSIONS: dict[str, Callable[[RawTree], Recommend]] = {
     "lauri-titan-als": lambda rawtree: _titan_max(
         rawtree, "lauri-titan-als", taste=True
     ),
+    # Titan+ plus each returning shopper's ALS taste, 30 deep, without tournament 4's losing layers
+    # (docs/experiments.md row 61): the ALS candidates' first live test. It reads the weights stored as
+    # lauri-titan-als: retraining them changes both versions.
+    "lauri-titan-plus-als": lambda rawtree: _lauri(
+        rawtree, "lauri-titan-als", history_carts=True, taste=True
+    ),
     "lauri-omni": lambda rawtree: _titan_max(rawtree, "lauri-omni", day=True),
+    # Omni's weights alone (the ones stored as lauri-omni: retraining Omni changes both), 30 deep, without the
+    # cold rule, the trending subcategory and pool 100 (tournament 4's live read, docs/experiments.md row 60).
+    "lauri-omni-plain": lambda rawtree: _lauri(
+        rawtree, "lauri-omni", day=True, history_carts=True
+    ),
 }
 """Every version that can run live, by name: a function that loads what it needs and returns its recommend."""
 
 DEFAULT_SPLIT = "tati-terminator-category-viewed=100"
 LOAD_ATTEMPTS = 3
+
+
+def is_known(name: str) -> bool:
+    """Whether `name` can serve: a version of VERSIONS, or a pair of two of them."""
+    arms = pair_arms(name)
+    return all(arm in VERSIONS for arm in arms) if arms else name in VERSIONS
+
+
+def load_version(
+    rawtree: RawTree, name: str, loaded: dict[str, Recommend]
+) -> Recommend:
+    """Load `name` once and keep it in `loaded`. A pair reuses its two versions from `loaded`, so a split
+    with a pair and one of its versions holds that version's model in memory once."""
+    if name not in loaded:
+        arms = pair_arms(name)
+        if arms:
+            cold, warm = arms
+            loaded[name] = cold_first(
+                load_version(rawtree, warm, loaded), load_version(rawtree, cold, loaded)
+            )
+        else:
+            loaded[name] = VERSIONS[name](rawtree)
+    return loaded[name]
+
 
 TAKE_OUTS = """
 SELECT version::String AS version, max(until_ms::Int64) AS until_ms
@@ -255,22 +293,26 @@ GROUP BY version"""
 
 
 def load_split(rawtree: RawTree, shares: dict[str, int], load: Callable) -> Split:
-    """Load every version in `shares`. The champion is retried until it loads (`load(fn, what)`); a challenger
-    gets LOAD_ATTEMPTS tries and is otherwise left out. Take-outs still running from before are kept."""
-    unknown = set(shares) - set(VERSIONS)
+    """Load every version in `shares`, each model once (`load_version`). The champion is retried until it
+    loads (`load(fn, what)`); a challenger gets LOAD_ATTEMPTS tries and is otherwise left out. Take-outs still
+    running from before are kept."""
+    unknown = sorted(name for name in shares if not is_known(name))
     if unknown:
         raise ValueError(
-            f"unknown versions {sorted(unknown)}; known: {sorted(VERSIONS)}"
+            f"unknown versions {unknown}; known: {sorted(VERSIONS)}, or {pair_name('<cold>', '<warm>')}"
         )
     champion = next(iter(shares))
+    loaded: dict[str, Recommend] = {}
     recommenders = {
-        champion: load(lambda: VERSIONS[champion](rawtree), f"champion {champion}")
+        champion: load(
+            lambda: load_version(rawtree, champion, loaded), f"champion {champion}"
+        )
     }
     out_until_ms: dict[str, float] = {}
     for name in list(shares)[1:]:
         for attempt in range(1, LOAD_ATTEMPTS + 1):
             try:
-                recommenders[name] = VERSIONS[name](rawtree)
+                recommenders[name] = load_version(rawtree, name, loaded)
                 break
             except Exception as e:  # noqa: BLE001  a broken challenger must not stop the champion serving
                 print(

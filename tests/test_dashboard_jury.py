@@ -1,6 +1,13 @@
 from datetime import UTC, datetime
 
-from dades_huzz.dashboard_jury import read_demand_trends
+from dades_huzz.dashboard_jury import default_jury_version, read_demand_trends
+
+
+def test_jury_prioritizes_the_active_version_before_its_first_confirmed_display():
+    displays = {"lauri-titan-plus": 400, "lauri-omni-plain": 230}
+    active = "pair:lauri-omni-plain+lauri-titan-plus-als"
+    assert default_jury_version(displays, active) == active
+    assert default_jury_version(displays) == "lauri-titan-plus"
 
 
 def test_jury_ranks_subcategories_by_purchase_share_multiplier():
