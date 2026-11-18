@@ -1,5 +1,22 @@
 # Dades-huzz · A recommender that answers in under 3 seconds and never sleeps
 
+Team project (4 people), forked from [ProGabo/dades-huzz](https://github.com/ProGabo/dades-huzz).
+A real-time recommender: ~3 shoppers per second, 3 seconds to answer each one, live for 24 hours.
+We finished 17th of 42 teams. The team's full write-up is below, but this part is about what I did.
+
+**My part: the live system.** I built the serving loop that answered 127,940 requests
+(99.3 % valid and on time), with automatic handover between laptops so it ran unattended overnight,
+and the live state the models read: stock, catalogue, each shopper's activity that day and trends.
+
+**Analysis.** I also measured what drove purchases in our own results and shared it with the
+modelling lane ([#5](https://github.com/ProGabo/dades-huzz/issues/5),
+[#7](https://github.com/ProGabo/dades-huzz/issues/7)). Two findings shaped the final model:
+a shopper's activity that day predicted purchases far better than their last view, and products
+they had carted but not bought sold several times more than anything else we showed.
+I also found that stock updates arrived up to 2 s late and teams were getting penalised for it. We told the organisers and they changed the rules for every team after we reported it.
+
+# Team write-up
+
 Our Team 2's entry for the **Datathon FME 2026 · RawTree Real-Time Recommendation** challenge. About three
 shoppers a second reach an online shop's carousel. For each one we have **3 seconds** to choose the **10
 products** they see, and a hidden simulator decides whether they buy. Only Sunday 10:00–12:00 CET is scored.
